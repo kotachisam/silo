@@ -22,6 +22,10 @@ pub struct State {
     pub instances: HashMap<String, ActiveInstance>,
     #[serde(default)]
     pub last_search_filters: Option<crate::providers::SearchFilters>,
+    #[serde(default)]
+    pub last_verified_only: bool,
+    #[serde(default)]
+    pub last_include_deverified: bool,
 }
 
 impl State {

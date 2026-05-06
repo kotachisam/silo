@@ -44,6 +44,8 @@ async fn check_status(resp: reqwest::Response, what: &str) -> Result<reqwest::Re
 
 fn filters_to_vast_body(f: &SearchFilters) -> Value {
     let mut body = serde_json::Map::new();
+    body.insert("rentable".into(), json!({"eq": true}));
+    body.insert("rented".into(), json!({"eq": false}));
     if let Some(n) = f.num_gpus {
         body.insert("num_gpus".into(), json!({"eq": n}));
     }
@@ -284,6 +286,8 @@ mod tests {
         assert_eq!(body["geolocation"]["eq"].as_str().unwrap(), "US");
         let rel = body["reliability2"]["gte"].as_f64().unwrap();
         assert!((rel - 0.99).abs() < 0.001, "reliability2 = {rel}");
+        assert!(body["rentable"]["eq"].as_bool().unwrap());
+        assert!(!body["rented"]["eq"].as_bool().unwrap());
 
         let mut server = Server::new_async().await;
         let mock = server

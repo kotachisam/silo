@@ -51,6 +51,8 @@ async fn cmd_search(provider: &AnyProvider, args: SearchArgs) -> Result<()> {
     };
     let mut state = State::load()?;
     state.last_search_filters = Some(filters.clone());
+    state.last_verified_only = args.verified_only;
+    state.last_include_deverified = args.include_deverified;
     state.save()?;
     let offers = provider.search(&filters).await?;
     let filtered = filter_by_status(offers, args.verified_only, args.include_deverified);
@@ -133,13 +135,27 @@ async fn retry_with_fresh_offer(
     let filters = state
         .last_search_filters
         .ok_or_else(|| anyhow::anyhow!("no saved search filters; run `silo search` first"))?;
-    let offers = provider.search(&filters).await?;
-    let next = offers
-        .into_iter()
-        .find(|o| o.id != failed_id)
-        .ok_or_else(|| anyhow::anyhow!("no alternative offers available; run `silo search` again"))?;
-    println!("retrying with offer {} ({})", next.id, next.gpu_name);
-    provider.create(&next.id, cfg).await
+    let raw = provider.search(&filters).await?;
+    let candidates = filter_by_status(raw, state.last_verified_only, state.last_include_deverified);
+
+    let mut last_err: Option<anyhow::Error> = None;
+    for next in candidates.into_iter().filter(|o| o.id != failed_id).take(3) {
+        println!("retrying with offer {} ({})", next.id, next.gpu_name);
+        match provider.create(&next.id, cfg).await {
+            Ok(inst) => return Ok(inst),
+            Err(e) if is_stale_offer_error(&e) => {
+                println!("  → {} also stale", next.id);
+                last_err = Some(e);
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        anyhow::anyhow!(
+            "no alternative offers available; vast.ai's bundles cache appears stuck — try `silo search` again in a minute"
+        )
+    }))
 }
 
 async fn cmd_status(provider: &AnyProvider, provider_name: &str) -> Result<()> {
