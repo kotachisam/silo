@@ -15,7 +15,7 @@ pub fn render_offers(offers: &[Offer]) {
 
 fn render_perf_block(offers: &[Offer]) {
     println!(
-        "{:>3}  {:<8}  {:<4}  {:<2}  {:<15}  {:>4}  {:>7}  {:>5}  {:>5}  {:>5}  {:>4}  {:>6}  {:>5}  {:>6}",
+        "{:>3}  {:<8}  {:<4}  {:<2}  {:<15}  {:>4}  {:>7}  {:>5}  {:>6}  {:>7}  {:>7}  {:>6}  {:>5}  {:>6}",
         "#".bold(),
         "ID".bold(),
         "CUDA".bold(),
@@ -24,16 +24,16 @@ fn render_perf_block(offers: &[Offer]) {
         "PCIE".bold(),
         "cpu_ghz".bold(),
         "vCPUs".bold(),
-        "RAM".bold(),
-        "VRAM".bold(),
-        "Disk".bold(),
+        "RAM/GB".bold(),
+        "VRAM/GB".bold(),
+        "Disk/GB".bold(),
         "$/hr".bold(),
         "DLP".bold(),
         "DLP/$".bold(),
     );
     for (i, o) in offers.iter().enumerate() {
         println!(
-            "{:>3}  {:<8}  {:<4}  {:<2}  {:<15}  {:>4}  {:>7}  {:>5}  {:>5}  {:>5}  {:>4}  {:>6.4}  {:>5}  {:>6}",
+            "{:>3}  {:<8}  {:<4}  {:<2}  {:<15}  {:>4}  {:>7}  {:>5}  {:>6}  {:>7}  {:>7}  {:>6.4}  {:>5}  {:>6}",
             i + 1,
             truncate(&o.id, 8),
             o.cuda.as_deref().unwrap_or("-"),
@@ -60,7 +60,7 @@ fn render_infra_block(offers: &[Offer]) {
         "NV Driver".bold(),
         "Net_up".bold(),
         "Net_down".bold(),
-        "R".bold(),
+        "R%".bold(),
         "Max_Days".bold(),
         "mach_id".bold(),
         "status".bold(),

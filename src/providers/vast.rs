@@ -102,8 +102,8 @@ struct VastOffer {
     inet_up: Option<f32>,
     #[serde(default)]
     inet_down: Option<f32>,
-    #[serde(default, rename = "duration", alias = "max_days_in_use")]
-    duration: Option<f32>,
+    #[serde(default, alias = "duration")]
+    max_days_in_use: Option<f32>,
     #[serde(default)]
     machine_id: Option<u64>,
     #[serde(default)]
@@ -158,7 +158,7 @@ impl Provider for VastProvider {
                 driver: o.driver_version,
                 net_up_mbps: o.inet_up,
                 net_down_mbps: o.inet_down,
-                max_days: o.duration,
+                max_days: o.max_days_in_use,
                 machine_id: o.machine_id,
                 host_id: o.host_id,
                 status: o.verification,
