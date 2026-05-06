@@ -28,6 +28,7 @@ pub async fn run() -> Result<()> {
         Command::Ssh { remote } => cmd_ssh(&provider_name, remote).await,
         Command::Tunnel(args) => cmd_tunnel(&provider_name, args).await,
         Command::Down => cmd_down(&provider, &provider_name).await,
+        Command::Cost => cmd_cost(&provider, &provider_name).await,
     }
 }
 
@@ -48,6 +49,9 @@ async fn cmd_search(provider: &AnyProvider, args: SearchArgs) -> Result<()> {
         gpu_name: args.gpu_name,
         limit: Some(args.limit),
     };
+    let mut state = State::load()?;
+    state.last_search_filters = Some(filters.clone());
+    state.save()?;
     let offers = provider.search(&filters).await?;
     let filtered = filter_by_status(offers, args.verified_only, args.include_deverified);
     format::render_offers(&filtered);
@@ -84,12 +88,20 @@ async fn cmd_up(provider: &AnyProvider, provider_name: &str, args: UpArgs) -> Re
     };
 
     let cfg = CreateConfig {
-        image: args.image,
+        image: args.image.clone(),
         disk_gb: args.disk,
         boot_script,
     };
 
-    let inst = provider.create(&args.offer_id, &cfg).await?;
+    let inst = match provider.create(&args.offer_id, &cfg).await {
+        Ok(i) => i,
+        Err(e) if is_stale_offer_error(&e) => {
+            println!("offer {} is stale (no_such_ask); trying next-cheapest", args.offer_id);
+            retry_with_fresh_offer(provider, &args.offer_id, &cfg).await?
+        }
+        Err(e) => return Err(e),
+    };
+
     println!("created instance {} on {provider_name}", inst.instance_id);
 
     let mut state = State::load()?;
@@ -106,6 +118,28 @@ async fn cmd_up(provider: &AnyProvider, provider_name: &str, args: UpArgs) -> Re
     state.save()?;
     println!("(run `silo status` to poll until SSH is ready)");
     Ok(())
+}
+
+fn is_stale_offer_error(e: &anyhow::Error) -> bool {
+    e.to_string().contains("no_such_ask")
+}
+
+async fn retry_with_fresh_offer(
+    provider: &AnyProvider,
+    failed_id: &str,
+    cfg: &CreateConfig,
+) -> Result<providers::InstanceRef> {
+    let state = State::load()?;
+    let filters = state
+        .last_search_filters
+        .ok_or_else(|| anyhow::anyhow!("no saved search filters; run `silo search` first"))?;
+    let offers = provider.search(&filters).await?;
+    let next = offers
+        .into_iter()
+        .find(|o| o.id != failed_id)
+        .ok_or_else(|| anyhow::anyhow!("no alternative offers available; run `silo search` again"))?;
+    println!("retrying with offer {} ({})", next.id, next.gpu_name);
+    provider.create(&next.id, cfg).await
 }
 
 async fn cmd_status(provider: &AnyProvider, provider_name: &str) -> Result<()> {
@@ -192,9 +226,69 @@ async fn cmd_down(provider: &AnyProvider, provider_name: &str) -> Result<()> {
     Ok(())
 }
 
+async fn cmd_cost(provider: &AnyProvider, provider_name: &str) -> Result<()> {
+    let state = State::load()?;
+    let active = state
+        .instances
+        .get(provider_name)
+        .ok_or_else(|| anyhow::anyhow!("no active instance for {provider_name}"))?;
+
+    let status = provider.status(&active.instance_id).await?;
+    let elapsed = Utc::now() - active.created_at;
+    let elapsed_hours = elapsed.num_seconds() as f32 / 3600.0;
+
+    println!("instance:    {}", active.instance_id);
+    println!("provider:    {provider_name}");
+    println!("state:       {}", status.state);
+    println!("started:     {}", active.created_at.format("%Y-%m-%d %H:%M:%S UTC"));
+    println!("elapsed:     {}", humanize_elapsed(elapsed));
+    if let Some(rate) = status.cost_per_hour_usd {
+        let total = rate * elapsed_hours;
+        println!("rate:        ${rate:.4}/hr");
+        println!("running:     ${total:.4}");
+    } else {
+        println!("rate:        unknown");
+    }
+    Ok(())
+}
+
+fn humanize_elapsed(d: chrono::Duration) -> String {
+    let total_secs = d.num_seconds().max(0);
+    let hours = total_secs / 3600;
+    let mins = (total_secs % 3600) / 60;
+    let secs = total_secs % 60;
+    if hours > 0 {
+        format!("{hours}h {mins}m {secs}s")
+    } else if mins > 0 {
+        format!("{mins}m {secs}s")
+    } else {
+        format!("{secs}s")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_no_such_ask_error() {
+        let e = anyhow::anyhow!("PUT /asks/123/ returned 400: {{\"error\":\"invalid_args\",\"msg\":\"no_such_ask Instance type by id 123 is not available.\"}}");
+        assert!(is_stale_offer_error(&e));
+    }
+
+    #[test]
+    fn does_not_match_unrelated_errors() {
+        let e = anyhow::anyhow!("connection refused");
+        assert!(!is_stale_offer_error(&e));
+    }
+
+    #[test]
+    fn humanize_elapsed_formats() {
+        use chrono::Duration;
+        assert_eq!(humanize_elapsed(Duration::seconds(45)), "45s");
+        assert_eq!(humanize_elapsed(Duration::seconds(125)), "2m 5s");
+        assert_eq!(humanize_elapsed(Duration::seconds(3725)), "1h 2m 5s");
+    }
 
     #[test]
     fn flag_overrides_state_default() {

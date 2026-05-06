@@ -33,6 +33,15 @@ impl VastProvider {
     }
 }
 
+async fn check_status(resp: reqwest::Response, what: &str) -> Result<reqwest::Response> {
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(resp);
+    }
+    let body_text = resp.text().await.unwrap_or_default();
+    anyhow::bail!("{what} returned {status}: {body_text}")
+}
+
 fn filters_to_vast_body(f: &SearchFilters) -> Value {
     let mut body = serde_json::Map::new();
     if let Some(n) = f.num_gpus {
@@ -122,15 +131,16 @@ impl Provider for VastProvider {
     async fn search(&self, filters: &SearchFilters) -> Result<Vec<Offer>> {
         let body = filters_to_vast_body(filters);
         let url = format!("{}/bundles/", self.base_url);
-        let resp: VastSearchResponse = self
+        let raw = self
             .client
             .post(&url)
             .bearer_auth(&self.api_key)
             .json(&body)
             .send()
             .await
-            .with_context(|| format!("POST {url}"))?
-            .error_for_status()?
+            .with_context(|| format!("POST {url}"))?;
+        let resp: VastSearchResponse = check_status(raw, &format!("POST {url}"))
+            .await?
             .json()
             .await
             .context("decoding /bundles/ response")?;
@@ -173,19 +183,21 @@ impl Provider for VastProvider {
         let mut body = json!({
             "image": cfg.image,
             "disk": cfg.disk_gb,
+            "runtype": "ssh",
         });
         if let Some(boot) = &cfg.boot_script {
             body["onstart"] = json!(boot);
         }
-        let resp: Value = self
+        let raw = self
             .client
             .put(&url)
             .bearer_auth(&self.api_key)
             .json(&body)
             .send()
             .await
-            .with_context(|| format!("PUT {url}"))?
-            .error_for_status()?
+            .with_context(|| format!("PUT {url}"))?;
+        let resp: Value = check_status(raw, &format!("PUT {url}"))
+            .await?
             .json()
             .await
             .context("decoding /asks/{id}/ response")?;
@@ -201,14 +213,15 @@ impl Provider for VastProvider {
 
     async fn status(&self, instance_id: &str) -> Result<InstanceStatus> {
         let url = format!("{}/instances/{}/", self.base_url, instance_id);
-        let resp: Value = self
+        let raw = self
             .client
             .get(&url)
             .bearer_auth(&self.api_key)
             .send()
             .await
-            .with_context(|| format!("GET {url}"))?
-            .error_for_status()?
+            .with_context(|| format!("GET {url}"))?;
+        let resp: Value = check_status(raw, &format!("GET {url}"))
+            .await?
             .json()
             .await
             .context("decoding /instances/{id}/ response")?;
@@ -237,13 +250,14 @@ impl Provider for VastProvider {
 
     async fn destroy(&self, instance_id: &str) -> Result<()> {
         let url = format!("{}/instances/{}/", self.base_url, instance_id);
-        self.client
+        let raw = self
+            .client
             .delete(&url)
             .bearer_auth(&self.api_key)
             .send()
             .await
-            .with_context(|| format!("DELETE {url}"))?
-            .error_for_status()?;
+            .with_context(|| format!("DELETE {url}"))?;
+        check_status(raw, &format!("DELETE {url}")).await?;
         Ok(())
     }
 }
@@ -327,6 +341,7 @@ mod tests {
             .match_body(mockito::Matcher::PartialJson(json!({
                 "image": "ubuntu:22.04",
                 "disk": 200,
+                "runtype": "ssh",
             })))
             .with_status(200)
             .with_header("content-type", "application/json")

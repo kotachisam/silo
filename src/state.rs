@@ -20,6 +20,8 @@ pub struct State {
     pub default_provider: Option<String>,
     #[serde(default)]
     pub instances: HashMap<String, ActiveInstance>,
+    #[serde(default)]
+    pub last_search_filters: Option<crate::providers::SearchFilters>,
 }
 
 impl State {

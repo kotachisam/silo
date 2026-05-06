@@ -22,6 +22,7 @@ pub enum Command {
     },
     Tunnel(TunnelArgs),
     Down,
+    Cost,
 }
 
 #[derive(Args, Debug)]

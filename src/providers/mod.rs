@@ -3,7 +3,7 @@ pub mod vast;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SearchFilters {
     pub num_gpus: Option<u32>,
     pub vram_min_gb: Option<u32>,
