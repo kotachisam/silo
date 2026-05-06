@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use clap::Parser;
 use cli::{Cli, Command, SearchArgs, TunnelArgs, UpArgs};
-use providers::{AnyProvider, CreateConfig, SearchFilters};
+use providers::{AnyProvider, CreateConfig, Offer, SearchFilters};
 use ssh::SshTarget;
 use state::{ActiveInstance, State};
 use std::fs;
@@ -49,8 +49,29 @@ async fn cmd_search(provider: &AnyProvider, args: SearchArgs) -> Result<()> {
         limit: Some(args.limit),
     };
     let offers = provider.search(&filters).await?;
-    format::render_offers(&offers);
+    let filtered = filter_by_status(offers, args.verified_only, args.include_deverified);
+    format::render_offers(&filtered);
     Ok(())
+}
+
+fn filter_by_status(offers: Vec<Offer>, verified_only: bool, include_deverified: bool) -> Vec<Offer> {
+    if !verified_only && include_deverified {
+        return offers;
+    }
+    let allowed: &[&str] = if verified_only {
+        &["verified"]
+    } else {
+        &["verified", "unverified"]
+    };
+    offers
+        .into_iter()
+        .filter(|o| {
+            o.status
+                .as_deref()
+                .map(|s| allowed.contains(&s))
+                .unwrap_or(false)
+        })
+        .collect()
 }
 
 async fn cmd_up(provider: &AnyProvider, provider_name: &str, args: UpArgs) -> Result<()> {
@@ -199,5 +220,69 @@ mod tests {
     fn ultimate_fallback_is_vast() {
         let resolved = resolve_provider(&None, &State::default());
         assert_eq!(resolved, "vast");
+    }
+
+    fn offer(id: &str, status: Option<&str>) -> Offer {
+        Offer {
+            id: id.into(),
+            status: status.map(String::from),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn filter_default_excludes_deverified() {
+        let offers = vec![
+            offer("a", Some("verified")),
+            offer("b", Some("unverified")),
+            offer("c", Some("deverified")),
+        ];
+        let result = filter_by_status(offers, false, false);
+        let ids: Vec<_> = result.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn filter_verified_only_keeps_only_verified() {
+        let offers = vec![
+            offer("a", Some("verified")),
+            offer("b", Some("unverified")),
+            offer("c", Some("deverified")),
+        ];
+        let result = filter_by_status(offers, true, false);
+        let ids: Vec<_> = result.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, vec!["a"]);
+    }
+
+    #[test]
+    fn filter_include_deverified_keeps_everything() {
+        let offers = vec![
+            offer("a", Some("verified")),
+            offer("b", Some("unverified")),
+            offer("c", Some("deverified")),
+        ];
+        let result = filter_by_status(offers, false, true);
+        let ids: Vec<_> = result.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn filter_verified_only_wins_over_include_deverified() {
+        let offers = vec![
+            offer("a", Some("verified")),
+            offer("b", Some("unverified")),
+            offer("c", Some("deverified")),
+        ];
+        let result = filter_by_status(offers, true, true);
+        let ids: Vec<_> = result.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, vec!["a"]);
+    }
+
+    #[test]
+    fn filter_drops_offers_with_unknown_status() {
+        let offers = vec![offer("a", None), offer("b", Some("verified"))];
+        let result = filter_by_status(offers, false, false);
+        let ids: Vec<_> = result.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, vec!["b"]);
     }
 }

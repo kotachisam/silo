@@ -15,7 +15,7 @@ pub struct SearchFilters {
     pub limit: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Offer {
     pub id: String,
     pub gpu_name: String,

@@ -43,6 +43,10 @@ pub struct SearchArgs {
     pub gpu_name: Option<String>,
     #[arg(long, default_value_t = 20, help = "Maximum number of offers to return")]
     pub limit: u32,
+    #[arg(long, help = "Show only fully verified hosts (recommended for production work)")]
+    pub verified_only: bool,
+    #[arg(long, help = "Include deverified hosts (vast.ai actively pulled trust)")]
+    pub include_deverified: bool,
 }
 
 const SEARCH_LEGEND: &str = "\
@@ -77,6 +81,14 @@ Block 2 (infra):
 
 Block 3:
   country    Geographic location of the host
+
+STATUS FILTERING
+
+By default, deverified hosts are excluded — these are hosts vast.ai has
+actively pulled the trust badge from, which is a stronger negative signal
+than 'never verified.' Override with:
+  --verified-only       Only audited hosts (recommended for production)
+  --include-deverified  Show all hosts including deverified
 
 NOTE: this legend shows on `silo search --help`. The short `-h` form keeps it terse.
 ";
