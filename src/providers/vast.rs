@@ -158,7 +158,7 @@ impl Provider for VastProvider {
                 driver: o.driver_version,
                 net_up_mbps: o.inet_up,
                 net_down_mbps: o.inet_down,
-                max_days: o.max_days_in_use,
+                max_days: o.max_days_in_use.map(|s| s / 86400.0),
                 machine_id: o.machine_id,
                 host_id: o.host_id,
                 status: o.verification,

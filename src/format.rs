@@ -76,7 +76,7 @@ fn render_infra_block(offers: &[Offer]) {
             o.net_up_mbps.map(|v| format!("{v:.1}")).unwrap_or_else(|| "-".into()),
             o.net_down_mbps.map(|v| format!("{v:.1}")).unwrap_or_else(|| "-".into()),
             o.reliability.map(|v| format!("{:.1}", v * 100.0)).unwrap_or_else(|| "-".into()),
-            o.max_days.map(|v| format!("{v:.1}")).unwrap_or_else(|| "-".into()),
+            o.max_days.map(humanize_days).unwrap_or_else(|| "-".into()),
             o.machine_id.map(|v| v.to_string()).unwrap_or_else(|| "-".into()),
             truncate(o.status.as_deref().unwrap_or("-"), 10),
             o.host_id.map(|v| v.to_string()).unwrap_or_else(|| "-".into()),
@@ -102,5 +102,57 @@ fn truncate(s: &str, max: usize) -> String {
         s.to_string()
     } else {
         s.chars().take(max).collect()
+    }
+}
+
+fn humanize_days(days: f32) -> String {
+    let d = days as i32;
+    if d < 1 {
+        format!("{:.1}h", days * 24.0)
+    } else if d < 31 {
+        format!("{d}d")
+    } else if d < 365 {
+        let months = d / 30;
+        let extra = d % 30;
+        if extra == 0 {
+            format!("{months}mo")
+        } else {
+            format!("{months}mo {extra}d")
+        }
+    } else {
+        let years = d / 365;
+        let extra = d % 365;
+        if extra == 0 {
+            format!("{years}y")
+        } else {
+            format!("{years}y {extra}d")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn humanize_handles_sub_day() {
+        assert_eq!(humanize_days(0.5), "12.0h");
+    }
+
+    #[test]
+    fn humanize_handles_days() {
+        assert_eq!(humanize_days(15.7), "15d");
+    }
+
+    #[test]
+    fn humanize_handles_months() {
+        assert_eq!(humanize_days(95.0), "3mo 5d");
+        assert_eq!(humanize_days(60.0), "2mo");
+    }
+
+    #[test]
+    fn humanize_handles_years() {
+        assert_eq!(humanize_days(605.3), "1y 240d");
+        assert_eq!(humanize_days(730.0), "2y");
     }
 }

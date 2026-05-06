@@ -27,21 +27,21 @@ pub enum Command {
 #[derive(Args, Debug)]
 #[command(after_long_help = SEARCH_LEGEND)]
 pub struct SearchArgs {
-    #[arg(long, default_value_t = 1)]
+    #[arg(long, default_value_t = 1, help = "Number of GPUs per offer")]
     pub gpus: u32,
-    #[arg(long, default_value_t = 90)]
+    #[arg(long, default_value_t = 90, help = "Minimum VRAM per GPU in GB")]
     pub vram: u32,
-    #[arg(long, default_value_t = 200)]
+    #[arg(long, default_value_t = 200, help = "Minimum disk space in GB")]
     pub disk: u32,
-    #[arg(long)]
+    #[arg(long, help = "Maximum hourly price in USD")]
     pub max_price: Option<f32>,
-    #[arg(long, default_value = "US")]
+    #[arg(long, default_value = "US", help = "Geographic region filter (e.g. US, EU)")]
     pub region: String,
-    #[arg(long, default_value_t = 0.99)]
+    #[arg(long, default_value_t = 0.99, help = "Minimum host reliability (0.0-1.0)")]
     pub reliability: f32,
-    #[arg(long)]
+    #[arg(long, help = "GPU model exact match (e.g. 'RTX 4090')")]
     pub gpu_name: Option<String>,
-    #[arg(long, default_value_t = 20)]
+    #[arg(long, default_value_t = 20, help = "Maximum number of offers to return")]
     pub limit: u32,
 }
 
