@@ -8,7 +8,7 @@ pub mod state;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use clap::Parser;
-use cli::{Cli, Command, SearchArgs, TunnelArgs, UpArgs};
+use cli::{Cli, Command, ConfigAction, ConfigArgs, SearchArgs, TunnelArgs, UpArgs};
 use providers::{AnyProvider, CreateConfig, Offer, SearchFilters};
 use ssh::SshTarget;
 use state::{ActiveInstance, State};
@@ -16,19 +16,25 @@ use std::fs;
 
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
+
+    if let Command::Config(args) = &cli.command {
+        return cmd_config(args).await;
+    }
+
     let config = config::Config::load()?;
     let state = State::load()?;
     let provider_name = resolve_provider(&cli.provider, &state);
     let provider = AnyProvider::from_name(&provider_name, &config)?;
 
     match cli.command {
-        Command::Search(args) => cmd_search(&provider, args).await,
+        Command::Search(args) => cmd_search(&provider, &config, args).await,
         Command::Up(args) => cmd_up(&provider, &provider_name, args).await,
         Command::Status => cmd_status(&provider, &provider_name).await,
         Command::Ssh { remote } => cmd_ssh(&provider_name, remote).await,
         Command::Tunnel(args) => cmd_tunnel(&provider_name, args).await,
         Command::Down => cmd_down(&provider, &provider_name).await,
         Command::Cost => cmd_cost(&provider, &provider_name).await,
+        Command::Config(_) => unreachable!("handled above"),
     }
 }
 
@@ -38,25 +44,89 @@ fn resolve_provider(flag: &Option<String>, state: &State) -> String {
         .unwrap_or_else(|| "vast".into())
 }
 
-async fn cmd_search(provider: &AnyProvider, args: SearchArgs) -> Result<()> {
+async fn cmd_search(provider: &AnyProvider, config: &config::Config, args: SearchArgs) -> Result<()> {
+    let s = &config.search;
     let filters = SearchFilters {
-        num_gpus: Some(args.gpus),
-        vram_min_gb: Some(args.vram),
-        disk_min_gb: Some(args.disk),
-        max_price_per_hour_usd: args.max_price,
-        region: Some(args.region),
-        reliability_min: Some(args.reliability),
+        num_gpus: Some(args.gpus.or(s.default_gpus).unwrap_or(1)),
+        vram_min_gb: Some(args.vram.or(s.default_vram_gb).unwrap_or(90)),
+        disk_min_gb: Some(args.disk.or(s.default_disk_gb).unwrap_or(200)),
+        max_price_per_hour_usd: args.max_price.or(s.default_max_price),
+        region: Some(
+            args.region
+                .or_else(|| s.default_region.clone())
+                .unwrap_or_else(|| "US".into()),
+        ),
+        reliability_min: Some(args.reliability.or(s.default_reliability).unwrap_or(0.99)),
         gpu_name: args.gpu_name,
-        limit: Some(args.limit),
+        limit: Some(args.limit.or(s.default_limit).unwrap_or(20)),
     };
+    let verified_only = args.verified_only || s.default_verified_only.unwrap_or(false);
+    let include_deverified = args.include_deverified || s.default_include_deverified.unwrap_or(false);
+
     let mut state = State::load()?;
     state.last_search_filters = Some(filters.clone());
-    state.last_verified_only = args.verified_only;
-    state.last_include_deverified = args.include_deverified;
+    state.last_verified_only = verified_only;
+    state.last_include_deverified = include_deverified;
     state.save()?;
     let offers = provider.search(&filters).await?;
-    let filtered = filter_by_status(offers, args.verified_only, args.include_deverified);
+    let filtered = filter_by_status(offers, verified_only, include_deverified);
     format::render_offers(&filtered);
+    Ok(())
+}
+
+async fn cmd_config(args: &ConfigArgs) -> Result<()> {
+    match args.action {
+        ConfigAction::Show => cmd_config_show(),
+        ConfigAction::Edit => cmd_config_edit(),
+    }
+}
+
+fn cmd_config_show() -> Result<()> {
+    let path = config::Config::default_path()?;
+    if !path.exists() {
+        println!("(no config file at {})", path.display());
+        println!("(run `silo config edit` to create one)");
+        return Ok(());
+    }
+    let contents = fs::read_to_string(&path)
+        .with_context(|| format!("reading {}", path.display()))?;
+    println!("# {}\n{contents}", path.display());
+    Ok(())
+}
+
+fn cmd_config_edit() -> Result<()> {
+    let path = config::Config::default_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    if !path.exists() {
+        let template = "\
+# silo config — uncomment and edit to apply
+# vast_api_key = \"...\"
+
+[search]
+# default_gpus = 1
+# default_vram_gb = 90
+# default_disk_gb = 200
+# default_max_price = 1.5
+# default_region = \"US\"
+# default_reliability = 0.99
+# default_limit = 20
+# default_verified_only = true
+# default_include_deverified = false
+";
+        fs::write(&path, template)
+            .with_context(|| format!("writing template to {}", path.display()))?;
+    }
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
+    let status = std::process::Command::new(&editor)
+        .arg(&path)
+        .status()
+        .with_context(|| format!("spawning {editor}"))?;
+    if !status.success() {
+        anyhow::bail!("{editor} exited with {status}");
+    }
     Ok(())
 }
 

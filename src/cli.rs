@@ -23,30 +23,45 @@ pub enum Command {
     Tunnel(TunnelArgs),
     Down,
     Cost,
+    Config(ConfigArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub action: ConfigAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigAction {
+    /// Print the current config file contents
+    Show,
+    /// Open the config file in $EDITOR (creates it with a commented template if missing)
+    Edit,
 }
 
 #[derive(Args, Debug)]
 #[command(after_long_help = SEARCH_LEGEND)]
 pub struct SearchArgs {
-    #[arg(long, default_value_t = 1, help = "Number of GPUs per offer")]
-    pub gpus: u32,
-    #[arg(long, default_value_t = 90, help = "Minimum VRAM per GPU in GB")]
-    pub vram: u32,
-    #[arg(long, default_value_t = 200, help = "Minimum disk space in GB")]
-    pub disk: u32,
-    #[arg(long, help = "Maximum hourly price in USD")]
+    #[arg(long, help = "Number of GPUs per offer (config: search.default_gpus, fallback: 1)")]
+    pub gpus: Option<u32>,
+    #[arg(long, help = "Minimum VRAM per GPU in GB (config: search.default_vram_gb, fallback: 90)")]
+    pub vram: Option<u32>,
+    #[arg(long, help = "Minimum disk space in GB (config: search.default_disk_gb, fallback: 200)")]
+    pub disk: Option<u32>,
+    #[arg(long, help = "Maximum hourly price in USD (config: search.default_max_price)")]
     pub max_price: Option<f32>,
-    #[arg(long, default_value = "US", help = "Geographic region filter (e.g. US, EU)")]
-    pub region: String,
-    #[arg(long, default_value_t = 0.99, help = "Minimum host reliability (0.0-1.0)")]
-    pub reliability: f32,
+    #[arg(long, help = "Geographic region (config: search.default_region, fallback: US)")]
+    pub region: Option<String>,
+    #[arg(long, help = "Minimum host reliability 0-1 (config: search.default_reliability, fallback: 0.99)")]
+    pub reliability: Option<f32>,
     #[arg(long, help = "GPU model exact match (e.g. 'RTX 4090')")]
     pub gpu_name: Option<String>,
-    #[arg(long, default_value_t = 20, help = "Maximum number of offers to return")]
-    pub limit: u32,
-    #[arg(long, help = "Show only fully verified hosts (recommended for production work)")]
+    #[arg(long, help = "Maximum offers to return (config: search.default_limit, fallback: 20)")]
+    pub limit: Option<u32>,
+    #[arg(long, help = "Force verified-only filter (presence overrides config to true)")]
     pub verified_only: bool,
-    #[arg(long, help = "Include deverified hosts (vast.ai actively pulled trust)")]
+    #[arg(long, help = "Force include-deverified (presence overrides config to true)")]
     pub include_deverified: bool,
 }
 

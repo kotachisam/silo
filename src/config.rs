@@ -8,6 +8,21 @@ use std::path::{Path, PathBuf};
 pub struct Config {
     #[serde(default)]
     pub vast_api_key: Option<String>,
+    #[serde(default)]
+    pub search: SearchConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SearchConfig {
+    pub default_gpus: Option<u32>,
+    pub default_vram_gb: Option<u32>,
+    pub default_disk_gb: Option<u32>,
+    pub default_max_price: Option<f32>,
+    pub default_region: Option<String>,
+    pub default_reliability: Option<f32>,
+    pub default_limit: Option<u32>,
+    pub default_verified_only: Option<bool>,
+    pub default_include_deverified: Option<bool>,
 }
 
 impl Config {
@@ -53,5 +68,37 @@ mod tests {
         fs::write(&path, r#"vast_api_key = "abc123""#).unwrap();
         let cfg = Config::load_from(&path).unwrap();
         assert_eq!(cfg.vast_api_key.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn parses_search_section() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+vast_api_key = "abc"
+
+[search]
+default_vram_gb = 180
+default_region = "EU"
+default_verified_only = true
+"#,
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path).unwrap();
+        assert_eq!(cfg.search.default_vram_gb, Some(180));
+        assert_eq!(cfg.search.default_region.as_deref(), Some("EU"));
+        assert_eq!(cfg.search.default_verified_only, Some(true));
+        assert_eq!(cfg.search.default_disk_gb, None);
+    }
+
+    #[test]
+    fn missing_search_section_yields_default_search_config() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, r#"vast_api_key = "abc""#).unwrap();
+        let cfg = Config::load_from(&path).unwrap();
+        assert_eq!(cfg.search, SearchConfig::default());
     }
 }
