@@ -15,14 +15,14 @@ pub fn render_offers(offers: &[Offer]) {
 
 fn render_perf_block(offers: &[Offer]) {
     println!(
-        "{:>3}  {:<8}  {:<4}  {:<2}  {:<15}  {:>4}  {:>7}  {:>5}  {:>6}  {:>7}  {:>7}  {:>6}  {:>5}  {:>6}",
+        "{:>3}  {:<8}  {:<4}  {:<2}  {:<15}  {:>4}  {:>3}  {:>5}  {:>6}  {:>7}  {:>7}  {:>6}  {:>5}  {:>6}",
         "#".bold(),
         "ID".bold(),
         "CUDA".bold(),
         "N".bold(),
         "Model".bold(),
         "PCIE".bold(),
-        "cpu_ghz".bold(),
+        "GHz".bold(),
         "vCPUs".bold(),
         "RAM/GB".bold(),
         "VRAM/GB".bold(),
@@ -33,7 +33,7 @@ fn render_perf_block(offers: &[Offer]) {
     );
     for (i, o) in offers.iter().enumerate() {
         println!(
-            "{:>3}  {:<8}  {:<4}  {:<2}  {:<15}  {:>4}  {:>7}  {:>5}  {:>6}  {:>7}  {:>7}  {:>6.4}  {:>5}  {:>6}",
+            "{:>3}  {:<8}  {:<4}  {:<2}  {:<15}  {:>4}  {:>3}  {:>5}  {:>6}  {:>7}  {:>7}  {:>6.4}  {:>5}  {:>6}",
             i + 1,
             truncate(&o.id, 8),
             o.cuda.as_deref().unwrap_or("-"),

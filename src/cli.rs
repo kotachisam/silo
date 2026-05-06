@@ -54,7 +54,7 @@ Block 1 (perf):
   N          Number of GPUs in the offer (e.g. 1x, 2x)
   Model      GPU model (spaces replaced with underscores)
   PCIE       PCIe bus bandwidth in GB/s
-  cpu_ghz    Host CPU clock speed in GHz
+  GHz        Host CPU clock speed
   vCPUs      Virtual CPUs allocated to the instance
   RAM/GB     Host system RAM
   VRAM/GB    GPU memory per card
