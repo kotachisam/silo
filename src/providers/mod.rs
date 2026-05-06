@@ -44,11 +44,12 @@ pub struct Offer {
     pub country: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CreateConfig {
     pub image: String,
     pub disk_gb: u32,
     pub boot_script: Option<String>,
+    pub env: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]

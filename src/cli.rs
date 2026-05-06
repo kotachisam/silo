@@ -112,12 +112,16 @@ NOTE: this legend shows on `silo search --help`. The short `-h` form keeps it te
 #[derive(Args, Debug)]
 pub struct UpArgs {
     pub offer_id: String,
-    #[arg(long, default_value = "ubuntu:22.04")]
-    pub image: String,
-    #[arg(long, default_value_t = 200)]
-    pub disk: u32,
-    #[arg(long)]
+    #[arg(long, help = "Profile name from config (config: up.default_profile)")]
+    pub profile: Option<String>,
+    #[arg(long, help = "Docker image (overrides profile, fallback: ubuntu:22.04)")]
+    pub image: Option<String>,
+    #[arg(long, help = "Disk size in GB (overrides profile, fallback: 200)")]
+    pub disk: Option<u32>,
+    #[arg(long, help = "Path to boot script (overrides profile)")]
     pub boot: Option<PathBuf>,
+    #[arg(long = "env", help = "Env var KEY=VALUE to inject (repeatable, overrides profile)")]
+    pub env: Vec<String>,
 }
 
 #[derive(Args, Debug)]

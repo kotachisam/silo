@@ -190,6 +190,15 @@ impl Provider for VastProvider {
         if let Some(boot) = &cfg.boot_script {
             body["onstart"] = json!(boot);
         }
+        if !cfg.env.is_empty() {
+            let env_str = cfg
+                .env
+                .iter()
+                .map(|(k, v)| format!("-e {k}={v}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            body["env"] = json!(env_str);
+        }
         let raw = self
             .client
             .put(&url)
@@ -358,6 +367,7 @@ mod tests {
             image: "ubuntu:22.04".into(),
             disk_gb: 200,
             boot_script: None,
+            env: Default::default(),
         };
         let inst = provider.create("55555", &cfg).await.unwrap();
 
@@ -383,6 +393,32 @@ mod tests {
             image: "ubuntu:22.04".into(),
             disk_gb: 200,
             boot_script: Some("echo hello".into()),
+            env: Default::default(),
+        };
+        provider.create("55555", &cfg).await.unwrap();
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn create_serializes_env_as_docker_flags() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("PUT", "/asks/55555/")
+            .match_body(mockito::Matcher::Regex("\"env\":\"-e [A-Z_]+=.+ -e [A-Z_]+=.+\"".into()))
+            .with_status(200)
+            .with_body(r#"{"success": true, "new_contract": 1}"#)
+            .create_async()
+            .await;
+
+        let provider = VastProvider::with_base_url(server.url());
+        let mut env = std::collections::HashMap::new();
+        env.insert("MODEL".into(), "Qwen/Qwen2.5-72B-Instruct".into());
+        env.insert("TP_SIZE".into(), "1".into());
+        let cfg = CreateConfig {
+            image: "vllm/vllm-openai:latest".into(),
+            disk_gb: 50,
+            boot_script: None,
+            env,
         };
         provider.create("55555", &cfg).await.unwrap();
         mock.assert_async().await;

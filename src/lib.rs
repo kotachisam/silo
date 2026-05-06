@@ -28,7 +28,7 @@ pub async fn run() -> Result<()> {
 
     match cli.command {
         Command::Search(args) => cmd_search(&provider, &config, args).await,
-        Command::Up(args) => cmd_up(&provider, &provider_name, args).await,
+        Command::Up(args) => cmd_up(&provider, &provider_name, &config, args).await,
         Command::Status => cmd_status(&provider, &provider_name).await,
         Command::Ssh { remote } => cmd_ssh(&provider_name, remote).await,
         Command::Tunnel(args) => cmd_tunnel(&provider_name, args).await,
@@ -90,7 +90,8 @@ fn cmd_config_show() -> Result<()> {
     }
     let contents = fs::read_to_string(&path)
         .with_context(|| format!("reading {}", path.display()))?;
-    println!("# {}\n{contents}", path.display());
+    let masked = config::mask_secrets(&contents);
+    println!("# {}\n{masked}", path.display());
     Ok(())
 }
 
@@ -115,6 +116,24 @@ fn cmd_config_edit() -> Result<()> {
 # default_limit = 20
 # default_verified_only = true
 # default_include_deverified = false
+
+[up]
+# default_profile = \"vllm\"
+
+# [up.profiles.vllm]
+# image = \"vllm/vllm-openai:latest\"
+# disk = 50
+# boot = \"/Users/you/bin/vps-vllm-boot.sh\"
+
+# [up.profiles.vllm.env]
+# MODEL = \"Qwen/Qwen2.5-72B-Instruct\"
+# TP_SIZE = \"1\"
+# HF_TOKEN = \"...\"
+
+# [up.profiles.ollama]
+# image = \"ubuntu:22.04\"
+# disk = 200
+# boot = \"/Users/you/bin/vps-ollama-boot.sh\"
 ";
         fs::write(&path, template)
             .with_context(|| format!("writing template to {}", path.display()))?;
@@ -150,8 +169,15 @@ fn filter_by_status(offers: Vec<Offer>, verified_only: bool, include_deverified:
         .collect()
 }
 
-async fn cmd_up(provider: &AnyProvider, provider_name: &str, args: UpArgs) -> Result<()> {
-    let boot_script = match &args.boot {
+async fn cmd_up(
+    provider: &AnyProvider,
+    provider_name: &str,
+    config: &config::Config,
+    args: UpArgs,
+) -> Result<()> {
+    let resolved = resolve_up(&config.up, &args)?;
+
+    let boot_script = match &resolved.boot {
         Some(path) => Some(
             fs::read_to_string(path)
                 .with_context(|| format!("reading boot script {}", path.display()))?,
@@ -160,9 +186,10 @@ async fn cmd_up(provider: &AnyProvider, provider_name: &str, args: UpArgs) -> Re
     };
 
     let cfg = CreateConfig {
-        image: args.image.clone(),
-        disk_gb: args.disk,
+        image: resolved.image,
+        disk_gb: resolved.disk,
         boot_script,
+        env: resolved.env,
     };
 
     let inst = match provider.create(&args.offer_id, &cfg).await {
@@ -194,6 +221,52 @@ async fn cmd_up(provider: &AnyProvider, provider_name: &str, args: UpArgs) -> Re
 
 fn is_stale_offer_error(e: &anyhow::Error) -> bool {
     e.to_string().contains("no_such_ask")
+}
+
+struct ResolvedUp {
+    image: String,
+    disk: u32,
+    boot: Option<std::path::PathBuf>,
+    env: std::collections::HashMap<String, String>,
+}
+
+fn resolve_up(up_config: &config::UpConfig, args: &UpArgs) -> Result<ResolvedUp> {
+    let profile_name = args
+        .profile
+        .clone()
+        .or_else(|| up_config.default_profile.clone());
+    let profile = match &profile_name {
+        Some(name) => match up_config.profiles.get(name) {
+            Some(p) => p.clone(),
+            None => anyhow::bail!(
+                "profile '{name}' not found in config (define [up.profiles.{name}] or pass --image/--disk/--boot directly)"
+            ),
+        },
+        None => config::UpProfile::default(),
+    };
+
+    let image = args
+        .image
+        .clone()
+        .or(profile.image)
+        .unwrap_or_else(|| "ubuntu:22.04".to_string());
+    let disk = args.disk.or(profile.disk).unwrap_or(200);
+    let boot = args.boot.clone().or(profile.boot);
+
+    let mut env = profile.env.clone();
+    for raw in &args.env {
+        let (k, v) = raw.split_once('=').ok_or_else(|| {
+            anyhow::anyhow!("--env expects KEY=VALUE, got '{raw}'")
+        })?;
+        env.insert(k.to_string(), v.to_string());
+    }
+
+    Ok(ResolvedUp {
+        image,
+        disk,
+        boot,
+        env,
+    })
 }
 
 async fn retry_with_fresh_offer(
