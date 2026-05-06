@@ -102,8 +102,8 @@ struct VastOffer {
     inet_up: Option<f32>,
     #[serde(default)]
     inet_down: Option<f32>,
-    #[serde(default)]
-    max_days_in_use: Option<f32>,
+    #[serde(default, rename = "duration", alias = "max_days_in_use")]
+    duration: Option<f32>,
     #[serde(default)]
     machine_id: Option<u64>,
     #[serde(default)]
@@ -142,7 +142,7 @@ impl Provider for VastProvider {
                 id: o.id.to_string(),
                 gpu_name: o.gpu_name,
                 num_gpus: o.num_gpus,
-                vram_gb: (o.gpu_ram / 1024.0) as u32,
+                vram_gb: (o.gpu_ram / 1024.0) as f32,
                 disk_gb: o.disk_space as u32,
                 price_per_hour_usd: o.dph_total,
                 region: o.geolocation.clone(),
@@ -158,7 +158,7 @@ impl Provider for VastProvider {
                 driver: o.driver_version,
                 net_up_mbps: o.inet_up,
                 net_down_mbps: o.inet_down,
-                max_days: o.max_days_in_use,
+                max_days: o.duration,
                 machine_id: o.machine_id,
                 host_id: o.host_id,
                 status: o.verification,
@@ -314,7 +314,7 @@ mod tests {
         assert_eq!(offers.len(), 1);
         assert_eq!(offers[0].id, "12345");
         assert_eq!(offers[0].gpu_name, "RTX 4090");
-        assert_eq!(offers[0].vram_gb, 24);
+        assert!((offers[0].vram_gb - 24.0).abs() < 0.001);
         assert_eq!(offers[0].disk_gb, 250);
         assert!((offers[0].price_per_hour_usd - 0.45).abs() < 0.001);
     }

@@ -20,7 +20,7 @@ pub struct Offer {
     pub id: String,
     pub gpu_name: String,
     pub num_gpus: u32,
-    pub vram_gb: u32,
+    pub vram_gb: f32,
     pub disk_gb: u32,
     pub price_per_hour_usd: f32,
     pub region: Option<String>,
