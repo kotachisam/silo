@@ -11,9 +11,11 @@ pub struct VastProvider {
 }
 
 impl VastProvider {
-    pub fn from_env() -> Result<Self> {
+    pub fn resolve(config: &crate::config::Config) -> Result<Self> {
         let api_key = std::env::var("VAST_API_KEY")
-            .context("VAST_API_KEY environment variable is not set")?;
+            .ok()
+            .or_else(|| config.vast_api_key.clone())
+            .context("vast.ai API key not found: set VAST_API_KEY env var or add vast_api_key to ~/.config/silo/config.toml")?;
         Ok(Self {
             client: Client::new(),
             base_url: "https://console.vast.ai/api/v0".into(),
@@ -37,7 +39,7 @@ fn filters_to_vast_body(f: &SearchFilters) -> Value {
         body.insert("num_gpus".into(), json!({"eq": n}));
     }
     if let Some(v) = f.vram_min_gb {
-        body.insert("gpu_ram".into(), json!({"gte": v}));
+        body.insert("gpu_ram".into(), json!({"gte": v * 1024}));
     }
     if let Some(d) = f.disk_min_gb {
         body.insert("disk_space".into(), json!({"gte": d}));
@@ -78,6 +80,38 @@ struct VastOffer {
     geolocation: Option<String>,
     #[serde(default)]
     reliability2: Option<f32>,
+    #[serde(default)]
+    cuda_max_good: Option<f32>,
+    #[serde(default)]
+    pcie_bw: Option<f32>,
+    #[serde(default)]
+    cpu_ghz: Option<f32>,
+    #[serde(default)]
+    cpu_cores_effective: Option<f32>,
+    #[serde(default)]
+    cpu_ram: Option<f64>,
+    #[serde(default)]
+    dlperf: Option<f32>,
+    #[serde(default)]
+    dlperf_per_dphtotal: Option<f32>,
+    #[serde(default)]
+    score: Option<f32>,
+    #[serde(default)]
+    driver_version: Option<String>,
+    #[serde(default)]
+    inet_up: Option<f32>,
+    #[serde(default)]
+    inet_down: Option<f32>,
+    #[serde(default)]
+    max_days_in_use: Option<f32>,
+    #[serde(default)]
+    machine_id: Option<u64>,
+    #[serde(default)]
+    host_id: Option<u64>,
+    #[serde(default)]
+    verification: Option<String>,
+    #[serde(default)]
+    direct_port_count: Option<u32>,
 }
 
 impl Provider for VastProvider {
@@ -111,8 +145,25 @@ impl Provider for VastProvider {
                 vram_gb: (o.gpu_ram / 1024.0) as u32,
                 disk_gb: o.disk_space as u32,
                 price_per_hour_usd: o.dph_total,
-                region: o.geolocation,
+                region: o.geolocation.clone(),
                 reliability: o.reliability2,
+                cuda: o.cuda_max_good.map(|c| format!("{c:.1}")),
+                pcie_bw: o.pcie_bw,
+                cpu_ghz: o.cpu_ghz,
+                vcpus: o.cpu_cores_effective,
+                ram_gb: o.cpu_ram.map(|r| (r / 1024.0) as f32),
+                dlp: o.dlperf,
+                dlp_per_dollar: o.dlperf_per_dphtotal,
+                score: o.score,
+                driver: o.driver_version,
+                net_up_mbps: o.inet_up,
+                net_down_mbps: o.inet_down,
+                max_days: o.max_days_in_use,
+                machine_id: o.machine_id,
+                host_id: o.host_id,
+                status: o.verification,
+                ports: o.direct_port_count,
+                country: o.geolocation,
             })
             .collect())
     }
@@ -214,7 +265,7 @@ mod tests {
         };
         let body = filters_to_vast_body(&filters);
 
-        assert_eq!(body["gpu_ram"]["gte"].as_u64().unwrap(), 90);
+        assert_eq!(body["gpu_ram"]["gte"].as_u64().unwrap(), 92160);
         assert_eq!(body["disk_space"]["gte"].as_u64().unwrap(), 200);
         assert_eq!(body["geolocation"]["eq"].as_str().unwrap(), "US");
         let rel = body["reliability2"]["gte"].as_f64().unwrap();

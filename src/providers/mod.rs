@@ -25,6 +25,23 @@ pub struct Offer {
     pub price_per_hour_usd: f32,
     pub region: Option<String>,
     pub reliability: Option<f32>,
+    pub cuda: Option<String>,
+    pub pcie_bw: Option<f32>,
+    pub cpu_ghz: Option<f32>,
+    pub vcpus: Option<f32>,
+    pub ram_gb: Option<f32>,
+    pub dlp: Option<f32>,
+    pub dlp_per_dollar: Option<f32>,
+    pub score: Option<f32>,
+    pub driver: Option<String>,
+    pub net_up_mbps: Option<f32>,
+    pub net_down_mbps: Option<f32>,
+    pub max_days: Option<f32>,
+    pub machine_id: Option<u64>,
+    pub host_id: Option<u64>,
+    pub status: Option<String>,
+    pub ports: Option<u32>,
+    pub country: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -61,9 +78,9 @@ pub enum AnyProvider {
 }
 
 impl AnyProvider {
-    pub fn from_name(name: &str) -> Result<Self> {
+    pub fn from_name(name: &str, config: &crate::config::Config) -> Result<Self> {
         match name {
-            "vast" => Ok(Self::Vast(vast::VastProvider::from_env()?)),
+            "vast" => Ok(Self::Vast(vast::VastProvider::resolve(config)?)),
             other => anyhow::bail!("unknown provider: {other}"),
         }
     }

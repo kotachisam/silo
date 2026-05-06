@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod config;
 pub mod format;
 pub mod providers;
 pub mod ssh;
@@ -15,9 +16,10 @@ use std::fs;
 
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
+    let config = config::Config::load()?;
     let state = State::load()?;
     let provider_name = resolve_provider(&cli.provider, &state);
-    let provider = AnyProvider::from_name(&provider_name)?;
+    let provider = AnyProvider::from_name(&provider_name, &config)?;
 
     match cli.command {
         Command::Search(args) => cmd_search(&provider, args).await,
