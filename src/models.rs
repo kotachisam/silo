@@ -27,11 +27,42 @@ pub struct SafetensorsInfo {
 
 impl HfModel {
     pub fn params_billions(&self) -> Option<f32> {
-        self.safetensors
-            .as_ref()
-            .and_then(|s| s.total)
-            .map(|n| (n as f64 / 1e9) as f32)
+        if let Some(t) = self.safetensors.as_ref().and_then(|s| s.total) {
+            return Some((t as f64 / 1e9) as f32);
+        }
+        params_from_name(&self.id)
     }
+}
+
+pub(crate) fn params_from_name(name: &str) -> Option<f32> {
+    let bytes = name.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if !bytes[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+            i += 1;
+        }
+        let num_end = i;
+        if num_end < bytes.len() && (bytes[num_end] == b'B' || bytes[num_end] == b'b') {
+            let after_b = num_end + 1;
+            let boundary_ok = after_b == bytes.len()
+                || matches!(bytes[after_b], b'-' | b'_' | b'.' | b'/');
+            if boundary_ok {
+                let raw = std::str::from_utf8(&bytes[start..num_end]).ok()?;
+                if let Ok(n) = raw.parse::<f32>()
+                    && (0.05..=10_000.0).contains(&n)
+                {
+                    return Some(n);
+                }
+            }
+            i = after_b;
+        }
+    }
+    None
 }
 
 pub struct HfClient {
@@ -121,9 +152,23 @@ mod tests {
     }
 
     #[test]
-    fn params_billions_returns_none_when_missing() {
+    fn params_billions_falls_back_to_name_when_safetensors_missing() {
         let m = HfModel {
-            id: "x/y".into(),
+            id: "Qwen/Qwen2.5-Coder-32B-Instruct".into(),
+            downloads: 0,
+            likes: 0,
+            last_modified: None,
+            pipeline_tag: None,
+            tags: vec![],
+            safetensors: None,
+        };
+        assert!((m.params_billions().unwrap() - 32.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn params_billions_returns_none_when_no_size_anywhere() {
+        let m = HfModel {
+            id: "Qwen/Qwen3-Coder-Next".into(),
             downloads: 0,
             likes: 0,
             last_modified: None,
@@ -132,6 +177,69 @@ mod tests {
             safetensors: None,
         };
         assert!(m.params_billions().is_none());
+    }
+
+    #[test]
+    fn params_from_name_extracts_first_b_match() {
+        assert_eq!(
+            params_from_name("Qwen/Qwen2.5-Coder-32B-Instruct"),
+            Some(32.0)
+        );
+        assert_eq!(
+            params_from_name("unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF"),
+            Some(30.0)
+        );
+        assert_eq!(
+            params_from_name("bigatuna/Qwen3.5-9b-Sushi-Coder-RL-GGUF"),
+            Some(9.0)
+        );
+        assert_eq!(
+            params_from_name("meta-llama/Llama-3.3-70B-Instruct"),
+            Some(70.0)
+        );
+        assert_eq!(
+            params_from_name("HuggingFaceTB/nanowhale-100m"),
+            None,
+            "no B/b suffix should yield None"
+        );
+        assert_eq!(
+            params_from_name("Qwen/Qwen3-Coder-Next"),
+            None,
+            "no size token at all"
+        );
+    }
+
+    #[test]
+    fn params_from_name_decimal_sizes() {
+        assert_eq!(
+            params_from_name("microsoft/phi-1.5B-instruct"),
+            Some(1.5)
+        );
+    }
+
+    #[test]
+    fn params_from_name_rejects_implausibly_large() {
+        assert_eq!(
+            params_from_name("some/Model-99999999B-thing"),
+            None
+        );
+    }
+
+    #[test]
+    fn safetensors_wins_over_name_heuristic() {
+        let m = HfModel {
+            id: "Qwen/Qwen2.5-Coder-7B".into(),
+            downloads: 0,
+            likes: 0,
+            last_modified: None,
+            pipeline_tag: None,
+            tags: vec![],
+            safetensors: Some(SafetensorsInfo {
+                total: Some(7_240_000_000),
+            }),
+        };
+        let p = m.params_billions().unwrap();
+        assert!((p - 7.24).abs() < 0.05);
     }
 
     #[tokio::test]
@@ -191,9 +299,10 @@ mod tests {
         let models = client.trending_text_generation(5, None).await.unwrap();
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].id, "deepseek-ai/DeepSeek-V4-Pro");
-        let p = models[0].params_billions().unwrap();
-        assert!((p - 862.0).abs() < 0.5);
-        assert!(models[1].params_billions().is_none());
+        let p0 = models[0].params_billions().unwrap();
+        assert!((p0 - 862.0).abs() < 0.5);
+        let p1 = models[1].params_billions().unwrap();
+        assert!((p1 - 8.0).abs() < 0.01, "name-fallback should extract 8B from granite-4.1-8b");
     }
 
     #[tokio::test]

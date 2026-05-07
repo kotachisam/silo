@@ -2,9 +2,12 @@ use crate::models::HfModel;
 use crate::providers::Offer;
 use owo_colors::OwoColorize;
 
-pub fn render_models(models: &[HfModel]) {
+pub fn render_models(models: &[HfModel], filtered_out: usize) {
     if models.is_empty() {
         println!("(no models matched)");
+        if filtered_out > 0 {
+            println!("({filtered_out} excluded by --min/--max; drop or widen the filter to see them)");
+        }
         return;
     }
     println!(
@@ -26,6 +29,10 @@ pub fn render_models(models: &[HfModel]) {
             humanize_downloads(m.downloads),
             short_date(m.last_modified.as_deref()),
         );
+    }
+    if filtered_out > 0 {
+        println!();
+        println!("({filtered_out} more results excluded by --min/--max)");
     }
 }
 
