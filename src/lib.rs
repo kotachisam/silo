@@ -39,7 +39,7 @@ pub async fn run() -> Result<()> {
         Command::Status => cmd_status(&provider, &provider_name).await,
         Command::Ssh { remote } => cmd_ssh(&provider_name, remote).await,
         Command::Tunnel(args) => cmd_tunnel(&provider_name, args).await,
-        Command::Down => cmd_down(&provider, &provider_name).await,
+        Command::Down => cmd_down(&provider, &provider_name, &config).await,
         Command::Prompt(args) => cmd_prompt(&provider_name, &config, args).await,
         Command::Logs(args) => cmd_logs(&provider_name, &config, args).await,
         Command::Config(_) | Command::Models(_) => unreachable!("handled above"),
@@ -52,16 +52,11 @@ fn resolve_model_from_config(config: &config::Config) -> Option<String> {
     profile.env.get("MODEL").cloned()
 }
 
-async fn cmd_prompt(
-    provider_name: &str,
-    config: &config::Config,
-    args: PromptArgs,
-) -> Result<()> {
+async fn cmd_prompt(provider_name: &str, config: &config::Config, args: PromptArgs) -> Result<()> {
     let state = State::load()?;
-    let active = state
-        .instances
-        .get(provider_name)
-        .ok_or_else(|| anyhow::anyhow!("no active instance for {provider_name}; run `silo up <id>` first"))?;
+    let active = state.instances.get(provider_name).ok_or_else(|| {
+        anyhow::anyhow!("no active instance for {provider_name}; run `silo up <id>` first")
+    })?;
     let host = active
         .ssh_host
         .clone()
@@ -137,7 +132,12 @@ async fn cmd_models(args: &ModelsArgs) -> Result<()> {
         .await?;
     let enriched = client.enrich_missing_params(raw).await;
     let total = enriched.len();
-    let filtered = filter_models(enriched, args.min_params, args.max_params, args.min_downloads);
+    let filtered = filter_models(
+        enriched,
+        args.min_params,
+        args.max_params,
+        args.min_downloads,
+    );
     let filtered_out = total - filtered.len();
     format::render_models(&filtered, filtered_out);
     Ok(())
@@ -178,7 +178,11 @@ fn resolve_provider(flag: &Option<String>, state: &State) -> String {
         .unwrap_or_else(|| "vast".into())
 }
 
-async fn cmd_search(provider: &AnyProvider, config: &config::Config, args: SearchArgs) -> Result<()> {
+async fn cmd_search(
+    provider: &AnyProvider,
+    config: &config::Config,
+    args: SearchArgs,
+) -> Result<()> {
     let s = &config.search;
     let filters = SearchFilters {
         num_gpus: Some(args.gpus.or(s.default_gpus).unwrap_or(1)),
@@ -195,7 +199,8 @@ async fn cmd_search(provider: &AnyProvider, config: &config::Config, args: Searc
         limit: Some(args.limit.or(s.default_limit).unwrap_or(20)),
     };
     let verified_only = args.verified_only || s.default_verified_only.unwrap_or(false);
-    let include_deverified = args.include_deverified || s.default_include_deverified.unwrap_or(false);
+    let include_deverified =
+        args.include_deverified || s.default_include_deverified.unwrap_or(false);
 
     let mut state = State::load()?;
     state.last_search_filters = Some(filters.clone());
@@ -222,14 +227,16 @@ fn cmd_config_show() -> Result<()> {
         println!("(run `silo config edit` to create one)");
         return Ok(());
     }
-    let contents = fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let contents =
+        fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let masked = config::mask_secrets(&contents);
     println!("# {}\n{masked}", path.display());
 
     if let Err(e) = config::Config::load_from(&path) {
         eprintln!();
-        eprintln!("warning: config does not parse cleanly — silo will fail on every command except `silo config show/edit` until fixed:");
+        eprintln!(
+            "warning: config does not parse cleanly — silo will fail on every command except `silo config show/edit` until fixed:"
+        );
         eprintln!("  {e:#}");
         eprintln!("(run `silo config edit` to fix)");
     }
@@ -239,8 +246,7 @@ fn cmd_config_show() -> Result<()> {
 fn cmd_config_edit() -> Result<()> {
     let path = config::Config::default_path()?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     if !path.exists() {
         let template = "\
@@ -301,7 +307,11 @@ fn cmd_config_edit() -> Result<()> {
     Ok(())
 }
 
-fn filter_by_status(offers: Vec<Offer>, verified_only: bool, include_deverified: bool) -> Vec<Offer> {
+fn filter_by_status(
+    offers: Vec<Offer>,
+    verified_only: bool,
+    include_deverified: bool,
+) -> Vec<Offer> {
     if !verified_only && include_deverified {
         return offers;
     }
@@ -366,11 +376,7 @@ fn discover_log_path(target: &SshTarget) -> Result<String> {
     }
 }
 
-async fn cmd_logs(
-    provider_name: &str,
-    config: &config::Config,
-    args: LogsArgs,
-) -> Result<()> {
+async fn cmd_logs(provider_name: &str, config: &config::Config, args: LogsArgs) -> Result<()> {
     let state = State::load()?;
     let active = state
         .instances
@@ -398,6 +404,24 @@ async fn cmd_logs(
         return Ok(());
     }
 
+    if args.all {
+        let n = args.tail;
+        let follow_flag = if args.follow { "-F" } else { "" };
+        if let Some(save) = args.save {
+            let local_path = save_path_for(&save, provider_name, &active.instance_id);
+            let remote_cmd = vec!["sh".into(), "-c".into(), "cat /var/log/*.log".into()];
+            target.run_ssh_to_file(&remote_cmd, &local_path)?;
+            println!("saved to {}", local_path.display());
+            return Ok(());
+        }
+        let remote_cmd = vec![
+            "sh".into(),
+            "-c".into(),
+            format!("tail -n {n} {follow_flag} /var/log/*.log"),
+        ];
+        return target.run_ssh(&remote_cmd);
+    }
+
     let log_path = if let Some(p) = args.path.as_deref() {
         p.to_string()
     } else if let Some(p) = profile_log_path(config) {
@@ -407,15 +431,7 @@ async fn cmd_logs(
     };
 
     if let Some(save) = args.save {
-        let local_path = if save.is_empty() {
-            let ts = Utc::now().format("%Y%m%dT%H%M%SZ");
-            std::path::PathBuf::from(format!(
-                "silo-{}-{}-{}.log",
-                provider_name, active.instance_id, ts
-            ))
-        } else {
-            std::path::PathBuf::from(save)
-        };
+        let local_path = save_path_for(&save, provider_name, &active.instance_id);
         let remote_cmd = vec!["cat".into(), log_path];
         target.run_ssh_to_file(&remote_cmd, &local_path)?;
         println!("saved to {}", local_path.display());
@@ -429,6 +445,41 @@ async fn cmd_logs(
         vec!["tail".into(), "-n".into(), n, log_path]
     };
     target.run_ssh(&remote_cmd)
+}
+
+fn save_path_for(save_arg: &str, provider_name: &str, instance_id: &str) -> std::path::PathBuf {
+    if save_arg.is_empty() {
+        let ts = Utc::now().format("%Y%m%dT%H%M%SZ");
+        std::path::PathBuf::from(format!("silo-{provider_name}-{instance_id}-{ts}.log"))
+    } else {
+        std::path::PathBuf::from(save_arg)
+    }
+}
+
+fn auto_capture_logs_dir() -> Result<std::path::PathBuf> {
+    let dirs = directories::ProjectDirs::from("", "", "silo")
+        .ok_or_else(|| anyhow::anyhow!("could not determine state directory"))?;
+    let logs_dir = dirs.data_local_dir().join("logs");
+    std::fs::create_dir_all(&logs_dir)
+        .with_context(|| format!("creating {}", logs_dir.display()))?;
+    Ok(logs_dir)
+}
+
+fn try_auto_capture_logs(
+    host: String,
+    port: u16,
+    provider_name: &str,
+    instance_id: &str,
+    config: &config::Config,
+) -> Result<std::path::PathBuf> {
+    let target = SshTarget::new(host, port);
+    let log_path = profile_log_path(config).unwrap_or_else(|| "/var/log/*.log".to_string());
+    let logs_dir = auto_capture_logs_dir()?;
+    let ts = Utc::now().format("%Y%m%dT%H%M%SZ");
+    let local_path = logs_dir.join(format!("silo-{provider_name}-{instance_id}-{ts}.log"));
+    let cmd = vec!["sh".into(), "-c".into(), format!("cat {log_path}")];
+    target.run_ssh_to_file(&cmd, &local_path)?;
+    Ok(local_path)
 }
 
 async fn poll_until_vllm_ready(
@@ -482,10 +533,7 @@ fn run_chime(config: &config::Config) {
     if let Some(cmd) = &config.up.chime_command
         && !cmd.trim().is_empty()
     {
-        let _ = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(cmd)
-            .status();
+        let _ = std::process::Command::new("sh").arg("-c").arg(cmd).status();
     }
 }
 
@@ -515,7 +563,10 @@ async fn cmd_up(
     let inst = match provider.create(&args.offer_id, &cfg).await {
         Ok(i) => i,
         Err(e) if is_stale_offer_error(&e) => {
-            println!("offer {} is stale (no_such_ask); trying next-cheapest", args.offer_id);
+            println!(
+                "offer {} is stale (no_such_ask); trying next-cheapest",
+                args.offer_id
+            );
             retry_with_fresh_offer(provider, &args.offer_id, &cfg).await?
         }
         Err(e) => return Err(e),
@@ -591,9 +642,9 @@ fn resolve_up(up_config: &config::UpConfig, args: &UpArgs) -> Result<ResolvedUp>
 
     let mut env = profile.env.clone();
     for raw in &args.env {
-        let (k, v) = raw.split_once('=').ok_or_else(|| {
-            anyhow::anyhow!("--env expects KEY=VALUE, got '{raw}'")
-        })?;
+        let (k, v) = raw
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("--env expects KEY=VALUE, got '{raw}'"))?;
         env.insert(k.to_string(), v.to_string());
     }
 
@@ -658,7 +709,10 @@ async fn cmd_status(provider: &AnyProvider, provider_name: &str) -> Result<()> {
     if let Some(port) = status.ssh_port {
         println!("ssh_port:    {port}");
     }
-    println!("started:     {}", active.created_at.format("%Y-%m-%d %H:%M:%S UTC"));
+    println!(
+        "started:     {}",
+        active.created_at.format("%Y-%m-%d %H:%M:%S UTC")
+    );
     println!("elapsed:     {}", humanize_elapsed(elapsed));
     if let Some(rate) = status.cost_per_hour_usd {
         let total = rate * elapsed_hours;
@@ -718,12 +772,24 @@ async fn cmd_tunnel(provider_name: &str, args: TunnelArgs) -> Result<()> {
     target.run_tunnel(args.port, remote_port)
 }
 
-async fn cmd_down(provider: &AnyProvider, provider_name: &str) -> Result<()> {
+async fn cmd_down(
+    provider: &AnyProvider,
+    provider_name: &str,
+    config: &config::Config,
+) -> Result<()> {
     let mut state = State::load()?;
     let active = state
         .instances
         .remove(provider_name)
         .ok_or_else(|| anyhow::anyhow!("no active instance for {provider_name}"))?;
+
+    if let (Some(host), Some(port)) = (active.ssh_host.clone(), active.ssh_port) {
+        match try_auto_capture_logs(host, port, provider_name, &active.instance_id, config) {
+            Ok(path) => println!("captured logs → {}", path.display()),
+            Err(e) => eprintln!("(log capture failed, continuing destroy: {e})"),
+        }
+    }
+
     provider.destroy(&active.instance_id).await?;
     println!("destroyed {} on {provider_name}", active.instance_id);
     state.save()?;
@@ -750,7 +816,9 @@ mod tests {
 
     #[test]
     fn detects_no_such_ask_error() {
-        let e = anyhow::anyhow!("PUT /asks/123/ returned 400: {{\"error\":\"invalid_args\",\"msg\":\"no_such_ask Instance type by id 123 is not available.\"}}");
+        let e = anyhow::anyhow!(
+            "PUT /asks/123/ returned 400: {{\"error\":\"invalid_args\",\"msg\":\"no_such_ask Instance type by id 123 is not available.\"}}"
+        );
         assert!(is_stale_offer_error(&e));
     }
 
@@ -946,7 +1014,9 @@ mod tests {
     #[test]
     fn resolve_model_from_config_uses_default_profile() {
         let mut profile = config::UpProfile::default();
-        profile.env.insert("MODEL".into(), "openai/gpt-oss-120b".into());
+        profile
+            .env
+            .insert("MODEL".into(), "openai/gpt-oss-120b".into());
         let mut profiles = std::collections::HashMap::new();
         profiles.insert("vllm".into(), profile);
         let cfg = config::Config {
@@ -958,7 +1028,10 @@ mod tests {
                 chime_command: None,
             },
         };
-        assert_eq!(resolve_model_from_config(&cfg), Some("openai/gpt-oss-120b".into()));
+        assert_eq!(
+            resolve_model_from_config(&cfg),
+            Some("openai/gpt-oss-120b".into())
+        );
     }
 
     #[test]

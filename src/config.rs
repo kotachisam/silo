@@ -72,7 +72,14 @@ pub fn mask_secrets(toml_text: &str) -> String {
             let masked_value = if unquoted.chars().count() >= 8 {
                 let chars: Vec<char> = unquoted.chars().collect();
                 let head: String = chars.iter().take(4).collect();
-                let tail: String = chars.iter().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+                let tail: String = chars
+                    .iter()
+                    .rev()
+                    .take(4)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
                 format!("\"{head}...{tail}\"")
             } else {
                 "\"<set>\"".to_string()
@@ -89,8 +96,8 @@ pub fn mask_secrets(toml_text: &str) -> String {
 
 impl Config {
     pub fn default_path() -> Result<PathBuf> {
-        let dirs = ProjectDirs::from("", "", "silo")
-            .context("could not determine config directory")?;
+        let dirs =
+            ProjectDirs::from("", "", "silo").context("could not determine config directory")?;
         Ok(dirs.config_dir().join("config.toml"))
     }
 
@@ -98,10 +105,9 @@ impl Config {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let s = fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        let cfg: Self = toml::from_str(&s)
-            .with_context(|| format!("parsing {}", path.display()))?;
+        let s = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let cfg: Self =
+            toml::from_str(&s).with_context(|| format!("parsing {}", path.display()))?;
         Ok(cfg)
     }
 
@@ -193,7 +199,10 @@ disk = 200
         let vllm = cfg.up.profiles.get("vllm").unwrap();
         assert_eq!(vllm.image.as_deref(), Some("vllm/vllm-openai:latest"));
         assert_eq!(vllm.disk, Some(50));
-        assert_eq!(vllm.env.get("MODEL").map(String::as_str), Some("Qwen/Qwen2.5-72B-Instruct"));
+        assert_eq!(
+            vllm.env.get("MODEL").map(String::as_str),
+            Some("Qwen/Qwen2.5-72B-Instruct")
+        );
         let ollama = cfg.up.profiles.get("ollama").unwrap();
         assert_eq!(ollama.image.as_deref(), Some("ubuntu:22.04"));
         assert!(ollama.env.is_empty());

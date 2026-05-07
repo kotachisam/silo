@@ -33,16 +33,30 @@ pub enum Command {
 
 #[derive(Args, Debug)]
 pub struct LogsArgs {
-    #[arg(short = 'n', long, default_value_t = 200, help = "Number of lines to tail")]
+    #[arg(
+        short = 'n',
+        long,
+        default_value_t = 200,
+        help = "Number of lines to tail"
+    )]
     pub tail: u32,
     #[arg(short = 'f', long, help = "Follow (live tail, Ctrl-C to stop)")]
     pub follow: bool,
     #[arg(short = 's', long, num_args = 0..=1, default_missing_value = "", help = "Save full log to local file (auto-named if no path given)")]
     pub save: Option<String>,
-    #[arg(long, help = "Override remote log path (else: profile.log_path → auto-discover /var/log/*.log)")]
+    #[arg(
+        long,
+        help = "Override remote log path (else: profile.log_path → auto-discover /var/log/*.log)"
+    )]
     pub path: Option<String>,
     #[arg(long, help = "List available .log files on the instance and exit")]
     pub list: bool,
+    #[arg(
+        short = 'a',
+        long,
+        help = "Tail all /var/log/*.log files together (with file headers)"
+    )]
+    pub all: bool,
 }
 
 #[derive(Args, Debug)]
@@ -53,7 +67,10 @@ pub struct PromptArgs {
     pub model: Option<String>,
     #[arg(long, default_value_t = 1024, help = "Maximum tokens in response")]
     pub max_tokens: u32,
-    #[arg(long, help = "Print full JSON response instead of just message content")]
+    #[arg(
+        long,
+        help = "Print full JSON response instead of just message content"
+    )]
     pub json: bool,
     #[arg(long, help = "Optional system prompt")]
     pub system: Option<String>,
@@ -61,15 +78,33 @@ pub struct PromptArgs {
 
 #[derive(Args, Debug)]
 pub struct ModelsArgs {
-    #[arg(short = 'l', long, default_value_t = 20, help = "Maximum number of models to fetch (HF allows up to 1000)")]
+    #[arg(
+        short = 'l',
+        long,
+        default_value_t = 20,
+        help = "Maximum number of models to fetch (HF allows up to 1000)"
+    )]
     pub limit: u32,
-    #[arg(short = 's', long, help = "Substring filter on model name (e.g. 'coder', 'reasoning')")]
+    #[arg(
+        short = 's',
+        long,
+        help = "Substring filter on model name (e.g. 'coder', 'reasoning')"
+    )]
     pub search: Option<String>,
-    #[arg(long = "min", help = "Filter to models with at least N billion parameters")]
+    #[arg(
+        long = "min",
+        help = "Filter to models with at least N billion parameters"
+    )]
     pub min_params: Option<f32>,
-    #[arg(long = "max", help = "Filter to models with at most N billion parameters")]
+    #[arg(
+        long = "max",
+        help = "Filter to models with at most N billion parameters"
+    )]
     pub max_params: Option<f32>,
-    #[arg(long, help = "Filter to models with at least N downloads (cuts amateur re-uploads)")]
+    #[arg(
+        long,
+        help = "Filter to models with at least N downloads (cuts amateur re-uploads)"
+    )]
     pub min_downloads: Option<u64>,
     #[arg(long, value_enum, default_value = "trending", help = "Sort order")]
     pub sort: SortOrder,
@@ -118,25 +153,57 @@ pub enum ConfigAction {
 #[derive(Args, Debug)]
 #[command(after_long_help = SEARCH_LEGEND)]
 pub struct SearchArgs {
-    #[arg(short = 'g', long, help = "Number of GPUs per offer (config: search.default_gpus, fallback: 1)")]
+    #[arg(
+        short = 'g',
+        long,
+        help = "Number of GPUs per offer (config: search.default_gpus, fallback: 1)"
+    )]
     pub gpus: Option<u32>,
-    #[arg(short = 'v', long, help = "Minimum VRAM per GPU in GB (config: search.default_vram_gb, fallback: 90)")]
+    #[arg(
+        short = 'v',
+        long,
+        help = "Minimum VRAM per GPU in GB (config: search.default_vram_gb, fallback: 90)"
+    )]
     pub vram: Option<u32>,
-    #[arg(short = 'd', long, help = "Minimum disk space in GB (config: search.default_disk_gb, fallback: 200)")]
+    #[arg(
+        short = 'd',
+        long,
+        help = "Minimum disk space in GB (config: search.default_disk_gb, fallback: 200)"
+    )]
     pub disk: Option<u32>,
-    #[arg(long, help = "Maximum hourly price in USD (config: search.default_max_price)")]
+    #[arg(
+        long,
+        help = "Maximum hourly price in USD (config: search.default_max_price)"
+    )]
     pub max_price: Option<f32>,
-    #[arg(short = 'r', long, help = "Geographic region (config: search.default_region, fallback: US)")]
+    #[arg(
+        short = 'r',
+        long,
+        help = "Geographic region (config: search.default_region, fallback: US)"
+    )]
     pub region: Option<String>,
-    #[arg(long, help = "Minimum host reliability 0-1 (config: search.default_reliability, fallback: 0.99)")]
+    #[arg(
+        long,
+        help = "Minimum host reliability 0-1 (config: search.default_reliability, fallback: 0.99)"
+    )]
     pub reliability: Option<f32>,
     #[arg(long, help = "GPU model exact match (e.g. 'RTX 4090')")]
     pub gpu_name: Option<String>,
-    #[arg(short = 'l', long, help = "Maximum offers to return (config: search.default_limit, fallback: 20)")]
+    #[arg(
+        short = 'l',
+        long,
+        help = "Maximum offers to return (config: search.default_limit, fallback: 20)"
+    )]
     pub limit: Option<u32>,
-    #[arg(long, help = "Force verified-only filter (presence overrides config to true)")]
+    #[arg(
+        long,
+        help = "Force verified-only filter (presence overrides config to true)"
+    )]
     pub verified_only: bool,
-    #[arg(long, help = "Force include-deverified (presence overrides config to true)")]
+    #[arg(
+        long,
+        help = "Force include-deverified (presence overrides config to true)"
+    )]
     pub include_deverified: bool,
 }
 
@@ -189,15 +256,31 @@ pub struct UpArgs {
     pub offer_id: String,
     #[arg(long, help = "Profile name from config (config: up.default_profile)")]
     pub profile: Option<String>,
-    #[arg(short = 'i', long, help = "Docker image (overrides profile, fallback: ubuntu:22.04)")]
+    #[arg(
+        short = 'i',
+        long,
+        help = "Docker image (overrides profile, fallback: ubuntu:22.04)"
+    )]
     pub image: Option<String>,
-    #[arg(short = 'd', long, help = "Disk size in GB (overrides profile, fallback: 200)")]
+    #[arg(
+        short = 'd',
+        long,
+        help = "Disk size in GB (overrides profile, fallback: 200)"
+    )]
     pub disk: Option<u32>,
     #[arg(short = 'b', long, help = "Path to boot script (overrides profile)")]
     pub boot: Option<PathBuf>,
-    #[arg(short = 'e', long = "env", help = "Env var KEY=VALUE to inject (repeatable, overrides profile)")]
+    #[arg(
+        short = 'e',
+        long = "env",
+        help = "Env var KEY=VALUE to inject (repeatable, overrides profile)"
+    )]
     pub env: Vec<String>,
-    #[arg(short = 'w', long, help = "Block until vLLM /health responds (polls every 60s, 30m timeout)")]
+    #[arg(
+        short = 'w',
+        long,
+        help = "Block until vLLM /health responds (polls every 60s, 30m timeout)"
+    )]
     pub wait: bool,
 }
 

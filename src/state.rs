@@ -30,8 +30,8 @@ pub struct State {
 
 impl State {
     pub fn default_path() -> Result<PathBuf> {
-        let dirs = ProjectDirs::from("", "", "silo")
-            .context("could not determine state directory")?;
+        let dirs =
+            ProjectDirs::from("", "", "silo").context("could not determine state directory")?;
         Ok(dirs.data_local_dir().join("active.json"))
     }
 
@@ -39,8 +39,7 @@ impl State {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let bytes = fs::read(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
         let state: Self = serde_json::from_slice(&bytes)
             .with_context(|| format!("parsing {}", path.display()))?;
         Ok(state)
@@ -48,12 +47,10 @@ impl State {
 
     pub fn save_to(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
         let bytes = serde_json::to_vec_pretty(self)?;
-        fs::write(path, bytes)
-            .with_context(|| format!("writing {}", path.display()))?;
+        fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))?;
         Ok(())
     }
 
@@ -119,12 +116,15 @@ mod tests {
         let path = dir.path().join("active.json");
         let mut state = State::default();
         state.instances.insert("vast".into(), sample_instance());
-        state.instances.insert("runpod".into(), ActiveInstance {
-            instance_id: "abc".into(),
-            ssh_host: None,
-            ssh_port: None,
-            created_at: Utc.with_ymd_and_hms(2026, 5, 6, 11, 0, 0).unwrap(),
-        });
+        state.instances.insert(
+            "runpod".into(),
+            ActiveInstance {
+                instance_id: "abc".into(),
+                ssh_host: None,
+                ssh_port: None,
+                created_at: Utc.with_ymd_and_hms(2026, 5, 6, 11, 0, 0).unwrap(),
+            },
+        );
         state.save_to(&path).unwrap();
 
         let loaded = State::load_from(&path).unwrap();

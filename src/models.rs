@@ -49,8 +49,8 @@ pub(crate) fn params_from_name(name: &str) -> Option<f32> {
         let num_end = i;
         if num_end < bytes.len() && (bytes[num_end] == b'B' || bytes[num_end] == b'b') {
             let after_b = num_end + 1;
-            let boundary_ok = after_b == bytes.len()
-                || matches!(bytes[after_b], b'-' | b'_' | b'.' | b'/');
+            let boundary_ok =
+                after_b == bytes.len() || matches!(bytes[after_b], b'-' | b'_' | b'.' | b'/');
             if boundary_ok {
                 let raw = std::str::from_utf8(&bytes[start..num_end]).ok()?;
                 if let Ok(n) = raw.parse::<f32>()
@@ -109,8 +109,7 @@ impl HfClient {
     }
 
     pub async fn enrich_missing_params(&self, mut models: Vec<HfModel>) -> Vec<HfModel> {
-        let mut set: tokio::task::JoinSet<(usize, Result<HfModel>)> =
-            tokio::task::JoinSet::new();
+        let mut set: tokio::task::JoinSet<(usize, Result<HfModel>)> = tokio::task::JoinSet::new();
 
         for (i, m) in models.iter().enumerate() {
             if m.params_billions().is_some() {
@@ -271,18 +270,12 @@ mod tests {
 
     #[test]
     fn params_from_name_decimal_sizes() {
-        assert_eq!(
-            params_from_name("microsoft/phi-1.5B-instruct"),
-            Some(1.5)
-        );
+        assert_eq!(params_from_name("microsoft/phi-1.5B-instruct"), Some(1.5));
     }
 
     #[test]
     fn params_from_name_rejects_implausibly_large() {
-        assert_eq!(
-            params_from_name("some/Model-99999999B-thing"),
-            None
-        );
+        assert_eq!(params_from_name("some/Model-99999999B-thing"), None);
     }
 
     #[test]
@@ -319,7 +312,10 @@ mod tests {
             .await;
 
         let client = HfClient::with_base_url(server.url());
-        let models = client.list_text_generation(5, None, "trendingScore").await.unwrap();
+        let models = client
+            .list_text_generation(5, None, "trendingScore")
+            .await
+            .unwrap();
         assert!(models.is_empty());
         mock.assert_async().await;
     }
@@ -356,13 +352,19 @@ mod tests {
             .await;
 
         let client = HfClient::with_base_url(server.url());
-        let models = client.list_text_generation(5, None, "trendingScore").await.unwrap();
+        let models = client
+            .list_text_generation(5, None, "trendingScore")
+            .await
+            .unwrap();
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].id, "deepseek-ai/DeepSeek-V4-Pro");
         let p0 = models[0].params_billions().unwrap();
         assert!((p0 - 862.0).abs() < 0.5);
         let p1 = models[1].params_billions().unwrap();
-        assert!((p1 - 8.0).abs() < 0.01, "name-fallback should extract 8B from granite-4.1-8b");
+        assert!(
+            (p1 - 8.0).abs() < 0.01,
+            "name-fallback should extract 8B from granite-4.1-8b"
+        );
     }
 
     #[tokio::test]
@@ -476,7 +478,10 @@ mod tests {
             .await;
 
         let client = HfClient::with_base_url(server.url());
-        let _ = client.list_text_generation(5, Some("coder"), "trendingScore").await.unwrap();
+        let _ = client
+            .list_text_generation(5, Some("coder"), "trendingScore")
+            .await
+            .unwrap();
         mock.assert_async().await;
     }
 }

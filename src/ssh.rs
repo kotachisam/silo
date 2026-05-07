@@ -58,7 +58,11 @@ impl SshTarget {
         Ok(())
     }
 
-    pub fn run_ssh_to_file(&self, remote_command: &[String], local_path: &std::path::Path) -> Result<()> {
+    pub fn run_ssh_to_file(
+        &self,
+        remote_command: &[String],
+        local_path: &std::path::Path,
+    ) -> Result<()> {
         use std::process::Stdio;
         let file = std::fs::File::create(local_path)
             .with_context(|| format!("creating {}", local_path.display()))?;
@@ -73,7 +77,11 @@ impl SshTarget {
         Ok(())
     }
 
-    pub fn run_ssh_with_stdin(&self, remote_command: &[String], stdin_bytes: &[u8]) -> Result<String> {
+    pub fn run_ssh_with_stdin(
+        &self,
+        remote_command: &[String],
+        stdin_bytes: &[u8],
+    ) -> Result<String> {
         use std::io::Write;
         use std::process::Stdio;
 
@@ -86,7 +94,9 @@ impl SshTarget {
             .context("spawning ssh")?;
 
         if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(stdin_bytes).context("writing to ssh stdin")?;
+            stdin
+                .write_all(stdin_bytes)
+                .context("writing to ssh stdin")?;
         }
 
         let output = child.wait_with_output().context("waiting for ssh")?;

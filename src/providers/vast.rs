@@ -2,7 +2,7 @@ use super::{CreateConfig, InstanceRef, InstanceStatus, Offer, Provider, SearchFi
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub struct VastProvider {
     client: Client,
@@ -314,7 +314,8 @@ mod tests {
             .mock("POST", "/bundles/")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{
+            .with_body(
+                r#"{
                 "offers": [{
                     "id": 12345,
                     "gpu_name": "RTX 4090",
@@ -325,7 +326,8 @@ mod tests {
                     "geolocation": "US",
                     "reliability2": 0.995
                 }]
-            }"#)
+            }"#,
+            )
             .create_async()
             .await;
 
@@ -430,14 +432,16 @@ mod tests {
             .mock("GET", "/instances/12345/")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{
+            .with_body(
+                r#"{
                 "instances": {
                     "actual_status": "running",
                     "ssh_host": "ssh4.vast.ai",
                     "ssh_port": 12345,
                     "dph_total": 0.45
                 }
-            }"#)
+            }"#,
+            )
             .create_async()
             .await;
 
@@ -455,11 +459,13 @@ mod tests {
         server
             .mock("GET", "/instances/12345/")
             .with_status(200)
-            .with_body(r#"{
+            .with_body(
+                r#"{
                 "instances": {
                     "actual_status": "loading"
                 }
-            }"#)
+            }"#,
+            )
             .create_async()
             .await;
 
