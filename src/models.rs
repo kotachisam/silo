@@ -92,6 +92,65 @@ impl HfClient {
         }
     }
 
+    pub async fn fetch_detail(&self, id: &str) -> Result<HfModel> {
+        let url = format!("{}/api/models/{}", self.base_url, id);
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .with_context(|| format!("GET {url}"))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("HF API returned {status}: {body}");
+        }
+        resp.json().await.context("decoding /api/models/{id}")
+    }
+
+    pub async fn enrich_missing_params(&self, mut models: Vec<HfModel>) -> Vec<HfModel> {
+        let mut set: tokio::task::JoinSet<(usize, Result<HfModel>)> =
+            tokio::task::JoinSet::new();
+
+        for (i, m) in models.iter().enumerate() {
+            if m.params_billions().is_some() {
+                continue;
+            }
+            let id = m.id.clone();
+            let base_url = self.base_url.clone();
+            let client = self.client.clone();
+            set.spawn(async move {
+                let url = format!("{}/api/models/{}", base_url, id);
+                let result = async {
+                    let resp = client
+                        .get(&url)
+                        .send()
+                        .await
+                        .with_context(|| format!("GET {url}"))?;
+                    if !resp.status().is_success() {
+                        anyhow::bail!("HF API returned {}", resp.status());
+                    }
+                    resp.json::<HfModel>()
+                        .await
+                        .context("decoding /api/models/{id}")
+                }
+                .await;
+                (i, result)
+            });
+        }
+
+        while let Some(joined) = set.join_next().await {
+            if let Ok((i, Ok(detail))) = joined
+                && let Some(s) = detail.safetensors
+                && s.total.is_some()
+            {
+                models[i].safetensors = Some(s);
+            }
+        }
+
+        models
+    }
+
     pub async fn trending_text_generation(
         &self,
         limit: u32,
@@ -303,6 +362,102 @@ mod tests {
         assert!((p0 - 862.0).abs() < 0.5);
         let p1 = models[1].params_billions().unwrap();
         assert!((p1 - 8.0).abs() < 0.01, "name-fallback should extract 8B from granite-4.1-8b");
+    }
+
+    #[tokio::test]
+    async fn enrich_skips_models_with_known_params() {
+        let server = Server::new_async().await;
+        let client = HfClient::with_base_url(server.url());
+        let models = vec![
+            HfModel {
+                id: "x/already-known-7b".into(),
+                downloads: 0,
+                likes: 0,
+                last_modified: None,
+                pipeline_tag: None,
+                tags: vec![],
+                safetensors: Some(SafetensorsInfo {
+                    total: Some(7_000_000_000),
+                }),
+            },
+            HfModel {
+                id: "y/Qwen2.5-72B-Instruct".into(),
+                downloads: 0,
+                likes: 0,
+                last_modified: None,
+                pipeline_tag: None,
+                tags: vec![],
+                safetensors: None,
+            },
+        ];
+        let result = client.enrich_missing_params(models).await;
+        assert_eq!(result.len(), 2);
+        assert!((result[0].params_billions().unwrap() - 7.0).abs() < 0.01);
+        assert!((result[1].params_billions().unwrap() - 72.0).abs() < 0.01);
+    }
+
+    #[tokio::test]
+    async fn enrich_fetches_detail_for_unknown_params() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/api/models/deepseek-ai/DeepSeek-V4-Pro")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{
+                    "id": "deepseek-ai/DeepSeek-V4-Pro",
+                    "downloads": 0,
+                    "likes": 0,
+                    "tags": [],
+                    "safetensors": {
+                        "parameters": {"FP8": 862000000000},
+                        "total": 862000000000
+                    }
+                }"#,
+            )
+            .create_async()
+            .await;
+
+        let client = HfClient::with_base_url(server.url());
+        let models = vec![HfModel {
+            id: "deepseek-ai/DeepSeek-V4-Pro".into(),
+            downloads: 0,
+            likes: 0,
+            last_modified: None,
+            pipeline_tag: None,
+            tags: vec![],
+            safetensors: None,
+        }];
+        let result = client.enrich_missing_params(models).await;
+        assert_eq!(result.len(), 1);
+        let p = result[0].params_billions().unwrap();
+        assert!((p - 862.0).abs() < 0.5);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn enrich_passes_through_when_detail_fails() {
+        let mut server = Server::new_async().await;
+        server
+            .mock("GET", "/api/models/missing/model")
+            .with_status(404)
+            .with_body("not found")
+            .create_async()
+            .await;
+
+        let client = HfClient::with_base_url(server.url());
+        let models = vec![HfModel {
+            id: "missing/model".into(),
+            downloads: 0,
+            likes: 0,
+            last_modified: None,
+            pipeline_tag: None,
+            tags: vec![],
+            safetensors: None,
+        }];
+        let result = client.enrich_missing_params(models).await;
+        assert_eq!(result.len(), 1);
+        assert!(result[0].params_billions().is_none());
     }
 
     #[tokio::test]

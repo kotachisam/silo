@@ -47,9 +47,10 @@ async fn cmd_models(args: &ModelsArgs) -> Result<()> {
     let raw = client
         .trending_text_generation(args.limit, args.search.as_deref())
         .await?;
-    let raw_count = raw.len();
-    let filtered = filter_models(raw, args.min_params, args.max_params);
-    let filtered_out = raw_count - filtered.len();
+    let enriched = client.enrich_missing_params(raw).await;
+    let total = enriched.len();
+    let filtered = filter_models(enriched, args.min_params, args.max_params);
+    let filtered_out = total - filtered.len();
     format::render_models(&filtered, filtered_out);
     Ok(())
 }
