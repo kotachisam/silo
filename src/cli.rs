@@ -22,12 +22,25 @@ pub enum Command {
     },
     Tunnel(TunnelArgs),
     Down,
-    Cost,
     Config(ConfigArgs),
     /// List trending text-generation models from Hugging Face
     Models(ModelsArgs),
     /// Send a one-shot prompt to the active instance's vLLM endpoint
     Prompt(PromptArgs),
+    /// Tail or save vLLM log from the active instance
+    Logs(LogsArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct LogsArgs {
+    #[arg(short = 'n', long, default_value_t = 200, help = "Number of lines to tail")]
+    pub tail: u32,
+    #[arg(short = 'f', long, help = "Follow (live tail, Ctrl-C to stop)")]
+    pub follow: bool,
+    #[arg(short = 's', long, num_args = 0..=1, default_missing_value = "", help = "Save full log to local file (auto-named if no path given)")]
+    pub save: Option<String>,
+    #[arg(long, help = "Override remote log path (default: profile.log_path or /var/log/vllm.log)")]
+    pub path: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -182,6 +195,8 @@ pub struct UpArgs {
     pub boot: Option<PathBuf>,
     #[arg(short = 'e', long = "env", help = "Env var KEY=VALUE to inject (repeatable, overrides profile)")]
     pub env: Vec<String>,
+    #[arg(short = 'w', long, help = "Block until vLLM /health responds (polls every 60s, 30m timeout)")]
+    pub wait: bool,
 }
 
 #[derive(Args, Debug)]

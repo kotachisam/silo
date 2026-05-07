@@ -33,6 +33,7 @@ pub struct UpConfig {
     pub default_profile: Option<String>,
     #[serde(default)]
     pub profiles: HashMap<String, UpProfile>,
+    pub chime_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -40,6 +41,7 @@ pub struct UpProfile {
     pub image: Option<String>,
     pub disk: Option<u32>,
     pub boot: Option<PathBuf>,
+    pub log_path: Option<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
 }

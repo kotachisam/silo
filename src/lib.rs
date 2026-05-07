@@ -10,7 +10,8 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use clap::Parser;
 use cli::{
-    Cli, Command, ConfigAction, ConfigArgs, ModelsArgs, PromptArgs, SearchArgs, TunnelArgs, UpArgs,
+    Cli, Command, ConfigAction, ConfigArgs, LogsArgs, ModelsArgs, PromptArgs, SearchArgs,
+    TunnelArgs, UpArgs,
 };
 use providers::{AnyProvider, CreateConfig, Offer, SearchFilters};
 use ssh::SshTarget;
@@ -39,8 +40,8 @@ pub async fn run() -> Result<()> {
         Command::Ssh { remote } => cmd_ssh(&provider_name, remote).await,
         Command::Tunnel(args) => cmd_tunnel(&provider_name, args).await,
         Command::Down => cmd_down(&provider, &provider_name).await,
-        Command::Cost => cmd_cost(&provider, &provider_name).await,
         Command::Prompt(args) => cmd_prompt(&provider_name, &config, args).await,
+        Command::Logs(args) => cmd_logs(&provider_name, &config, args).await,
         Command::Config(_) | Command::Models(_) => unreachable!("handled above"),
     }
 }
@@ -259,11 +260,13 @@ fn cmd_config_edit() -> Result<()> {
 
 [up]
 # default_profile = \"vllm\"
+# chime_command = \"afplay /System/Library/Sounds/Glass.aiff\"   # macOS; runs on `silo up --wait` success
 
 # [up.profiles.vllm]
 # image = \"vllm/vllm-openai:latest\"
 # disk = 50
 # boot = \"/Users/you/bin/vps-vllm-boot.sh\"
+# log_path = \"/var/log/vllm.log\"   # used by `silo logs`
 
 # [up.profiles.vllm.env]
 # MODEL = \"Qwen/Qwen2.5-72B-Instruct\"
@@ -274,6 +277,7 @@ fn cmd_config_edit() -> Result<()> {
 # image = \"ubuntu:22.04\"
 # disk = 200
 # boot = \"/Users/you/bin/vps-ollama-boot.sh\"
+# log_path = \"/var/log/ollama.log\"
 ";
         fs::write(&path, template)
             .with_context(|| format!("writing template to {}", path.display()))?;
@@ -315,6 +319,122 @@ fn filter_by_status(offers: Vec<Offer>, verified_only: bool, include_deverified:
                 .unwrap_or(false)
         })
         .collect()
+}
+
+fn resolve_log_path(config: &config::Config, override_path: Option<&str>) -> String {
+    if let Some(p) = override_path {
+        return p.to_string();
+    }
+    let from_profile = config
+        .up
+        .default_profile
+        .as_deref()
+        .and_then(|name| config.up.profiles.get(name))
+        .and_then(|p| p.log_path.clone());
+    from_profile.unwrap_or_else(|| "/var/log/vllm.log".to_string())
+}
+
+async fn cmd_logs(
+    provider_name: &str,
+    config: &config::Config,
+    args: LogsArgs,
+) -> Result<()> {
+    let state = State::load()?;
+    let active = state
+        .instances
+        .get(provider_name)
+        .ok_or_else(|| anyhow::anyhow!("no active instance for {provider_name}"))?;
+    let host = active
+        .ssh_host
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("ssh_host unknown — run `silo status` first"))?;
+    let port = active
+        .ssh_port
+        .ok_or_else(|| anyhow::anyhow!("ssh_port unknown — run `silo status` first"))?;
+    let target = SshTarget::new(host, port);
+    let log_path = resolve_log_path(config, args.path.as_deref());
+
+    if let Some(save) = args.save {
+        let local_path = if save.is_empty() {
+            let ts = Utc::now().format("%Y%m%dT%H%M%SZ");
+            std::path::PathBuf::from(format!(
+                "silo-{}-{}-{}.log",
+                provider_name, active.instance_id, ts
+            ))
+        } else {
+            std::path::PathBuf::from(save)
+        };
+        let remote_cmd = vec!["cat".into(), log_path];
+        target.run_ssh_to_file(&remote_cmd, &local_path)?;
+        println!("saved to {}", local_path.display());
+        return Ok(());
+    }
+
+    let n = args.tail.to_string();
+    let remote_cmd: Vec<String> = if args.follow {
+        vec!["tail".into(), "-n".into(), n, "-f".into(), log_path]
+    } else {
+        vec!["tail".into(), "-n".into(), n, log_path]
+    };
+    target.run_ssh(&remote_cmd)
+}
+
+async fn poll_until_vllm_ready(
+    provider: &AnyProvider,
+    instance_id: &str,
+) -> Result<providers::InstanceStatus> {
+    let timeout = std::time::Duration::from_secs(1800);
+    let interval = std::time::Duration::from_secs(60);
+    let start = std::time::Instant::now();
+
+    loop {
+        if start.elapsed() > timeout {
+            anyhow::bail!(
+                "timed out after 30 minutes waiting for vLLM; instance still running. Check `silo status` and `silo down` if you want to stop billing"
+            );
+        }
+
+        let elapsed = chrono::Duration::from_std(start.elapsed()).unwrap_or_default();
+        let elapsed_str = humanize_elapsed(elapsed);
+
+        match provider.status(instance_id).await {
+            Ok(s) => {
+                if s.state == "running"
+                    && let (Some(host), Some(port)) = (s.ssh_host.clone(), s.ssh_port)
+                {
+                    let target = SshTarget::new(host, port);
+                    let cmd = vec![
+                        "curl".into(),
+                        "-sf".into(),
+                        "-o".into(),
+                        "/dev/null".into(),
+                        "http://localhost:8000/health".into(),
+                    ];
+                    if target.run_ssh_with_stdin(&cmd, &[]).is_ok() {
+                        println!("[{elapsed_str}] vLLM ready");
+                        return Ok(s);
+                    }
+                    println!("[{elapsed_str}] running, vLLM not yet on /health");
+                } else {
+                    println!("[{elapsed_str}] state={}", s.state);
+                }
+            }
+            Err(e) => println!("[{elapsed_str}] status error: {e}"),
+        }
+
+        tokio::time::sleep(interval).await;
+    }
+}
+
+fn run_chime(config: &config::Config) {
+    if let Some(cmd) = &config.up.chime_command
+        && !cmd.trim().is_empty()
+    {
+        let _ = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .status();
+    }
 }
 
 async fn cmd_up(
@@ -363,7 +483,23 @@ async fn cmd_up(
         },
     );
     state.save()?;
-    println!("(run `silo status` to poll until SSH is ready)");
+
+    if !args.wait {
+        println!("(run `silo status` to poll until SSH is ready, or pass --wait next time)");
+        return Ok(());
+    }
+
+    println!("waiting for vLLM /health (polls every 60s, 30m timeout)…");
+    let final_status = poll_until_vllm_ready(provider, &inst.instance_id).await?;
+
+    let mut state = State::load()?;
+    if let Some(active) = state.instances.get_mut(provider_name) {
+        active.ssh_host = final_status.ssh_host;
+        active.ssh_port = final_status.ssh_port;
+    }
+    state.save()?;
+
+    run_chime(config);
     Ok(())
 }
 
@@ -458,6 +594,9 @@ async fn cmd_status(provider: &AnyProvider, provider_name: &str) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("no active instance for provider {provider_name}"))?;
 
     let status = provider.status(&active.instance_id).await?;
+    let elapsed = Utc::now() - active.created_at;
+    let elapsed_hours = elapsed.num_seconds() as f32 / 3600.0;
+
     println!("provider:    {provider_name}");
     println!("instance:    {}", active.instance_id);
     println!("state:       {}", status.state);
@@ -467,8 +606,14 @@ async fn cmd_status(provider: &AnyProvider, provider_name: &str) -> Result<()> {
     if let Some(port) = status.ssh_port {
         println!("ssh_port:    {port}");
     }
-    if let Some(cost) = status.cost_per_hour_usd {
-        println!("usd/hr:      {cost:.4}");
+    println!("started:     {}", active.created_at.format("%Y-%m-%d %H:%M:%S UTC"));
+    println!("elapsed:     {}", humanize_elapsed(elapsed));
+    if let Some(rate) = status.cost_per_hour_usd {
+        let total = rate * elapsed_hours;
+        println!("rate:        ${rate:.4}/hr");
+        println!("running:     ${total:.4}");
+    } else {
+        println!("rate:        unknown");
     }
 
     let updated = ActiveInstance {
@@ -530,32 +675,6 @@ async fn cmd_down(provider: &AnyProvider, provider_name: &str) -> Result<()> {
     provider.destroy(&active.instance_id).await?;
     println!("destroyed {} on {provider_name}", active.instance_id);
     state.save()?;
-    Ok(())
-}
-
-async fn cmd_cost(provider: &AnyProvider, provider_name: &str) -> Result<()> {
-    let state = State::load()?;
-    let active = state
-        .instances
-        .get(provider_name)
-        .ok_or_else(|| anyhow::anyhow!("no active instance for {provider_name}"))?;
-
-    let status = provider.status(&active.instance_id).await?;
-    let elapsed = Utc::now() - active.created_at;
-    let elapsed_hours = elapsed.num_seconds() as f32 / 3600.0;
-
-    println!("instance:    {}", active.instance_id);
-    println!("provider:    {provider_name}");
-    println!("state:       {}", status.state);
-    println!("started:     {}", active.created_at.format("%Y-%m-%d %H:%M:%S UTC"));
-    println!("elapsed:     {}", humanize_elapsed(elapsed));
-    if let Some(rate) = status.cost_per_hour_usd {
-        let total = rate * elapsed_hours;
-        println!("rate:        ${rate:.4}/hr");
-        println!("running:     ${total:.4}");
-    } else {
-        println!("rate:        unknown");
-    }
     Ok(())
 }
 
@@ -747,6 +866,38 @@ mod tests {
     }
 
     #[test]
+    fn resolve_log_path_uses_override_when_present() {
+        let cfg = config::Config::default();
+        assert_eq!(resolve_log_path(&cfg, Some("/custom/path.log")), "/custom/path.log");
+    }
+
+    #[test]
+    fn resolve_log_path_falls_back_to_profile() {
+        let profile = config::UpProfile {
+            log_path: Some("/var/log/custom.log".into()),
+            ..Default::default()
+        };
+        let mut profiles = std::collections::HashMap::new();
+        profiles.insert("vllm".into(), profile);
+        let cfg = config::Config {
+            vast_api_key: None,
+            search: config::SearchConfig::default(),
+            up: config::UpConfig {
+                default_profile: Some("vllm".into()),
+                profiles,
+                chime_command: None,
+            },
+        };
+        assert_eq!(resolve_log_path(&cfg, None), "/var/log/custom.log");
+    }
+
+    #[test]
+    fn resolve_log_path_default_when_unconfigured() {
+        let cfg = config::Config::default();
+        assert_eq!(resolve_log_path(&cfg, None), "/var/log/vllm.log");
+    }
+
+    #[test]
     fn resolve_model_from_config_uses_default_profile() {
         let mut profile = config::UpProfile::default();
         profile.env.insert("MODEL".into(), "openai/gpt-oss-120b".into());
@@ -758,6 +909,7 @@ mod tests {
             up: config::UpConfig {
                 default_profile: Some("vllm".into()),
                 profiles,
+                chime_command: None,
             },
         };
         assert_eq!(resolve_model_from_config(&cfg), Some("openai/gpt-oss-120b".into()));
@@ -777,6 +929,7 @@ mod tests {
             up: config::UpConfig {
                 default_profile: Some("vllm".into()),
                 profiles: std::collections::HashMap::new(),
+                chime_command: None,
             },
         };
         assert_eq!(resolve_model_from_config(&cfg), None);

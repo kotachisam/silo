@@ -191,13 +191,7 @@ impl Provider for VastProvider {
             body["onstart"] = json!(boot);
         }
         if !cfg.env.is_empty() {
-            let env_str = cfg
-                .env
-                .iter()
-                .map(|(k, v)| format!("-e {k}={v}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            body["env"] = json!(env_str);
+            body["env"] = serde_json::to_value(&cfg.env)?;
         }
         let raw = self
             .client
@@ -400,11 +394,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_serializes_env_as_docker_flags() {
+    async fn create_serializes_env_as_json_object() {
         let mut server = Server::new_async().await;
         let mock = server
             .mock("PUT", "/asks/55555/")
-            .match_body(mockito::Matcher::Regex("\"env\":\"-e [A-Z_]+=.+ -e [A-Z_]+=.+\"".into()))
+            .match_body(mockito::Matcher::PartialJson(json!({
+                "env": {
+                    "MODEL": "Qwen/Qwen2.5-72B-Instruct",
+                    "TP_SIZE": "1"
+                }
+            })))
             .with_status(200)
             .with_body(r#"{"success": true, "new_contract": 1}"#)
             .create_async()

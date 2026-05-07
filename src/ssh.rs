@@ -58,6 +58,21 @@ impl SshTarget {
         Ok(())
     }
 
+    pub fn run_ssh_to_file(&self, remote_command: &[String], local_path: &std::path::Path) -> Result<()> {
+        use std::process::Stdio;
+        let file = std::fs::File::create(local_path)
+            .with_context(|| format!("creating {}", local_path.display()))?;
+        let status = self
+            .build_ssh(remote_command)
+            .stdout(Stdio::from(file))
+            .status()
+            .context("spawning ssh")?;
+        if !status.success() {
+            anyhow::bail!("ssh exited with {status}");
+        }
+        Ok(())
+    }
+
     pub fn run_ssh_with_stdin(&self, remote_command: &[String], stdin_bytes: &[u8]) -> Result<String> {
         use std::io::Write;
         use std::process::Stdio;
