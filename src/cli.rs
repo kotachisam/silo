@@ -282,6 +282,11 @@ pub struct UpArgs {
         help = "Block until vLLM /health responds (polls every 60s, 30m timeout)"
     )]
     pub wait: bool,
+    #[arg(
+        long,
+        help = "Skip the GPU-arch compatibility check against the profile's block_arch list"
+    )]
+    pub skip_compat_check: bool,
 }
 
 #[derive(Args, Debug)]

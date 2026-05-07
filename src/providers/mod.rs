@@ -1,3 +1,4 @@
+pub mod arch;
 pub mod vast;
 
 use anyhow::Result;

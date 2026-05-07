@@ -44,6 +44,8 @@ pub struct UpProfile {
     pub log_path: Option<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
+    #[serde(default)]
+    pub block_arch: Vec<String>,
 }
 
 pub fn mask_secrets(toml_text: &str) -> String {

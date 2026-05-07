@@ -206,9 +206,24 @@ async fn cmd_search(
     state.last_search_filters = Some(filters.clone());
     state.last_verified_only = verified_only;
     state.last_include_deverified = include_deverified;
-    state.save()?;
     let offers = provider.search(&filters).await?;
     let filtered = filter_by_status(offers, verified_only, include_deverified);
+
+    state.last_search_results = filtered
+        .iter()
+        .map(|o| {
+            (
+                o.id.clone(),
+                state::CachedOffer {
+                    gpu_name: o.gpu_name.clone(),
+                    num_gpus: o.num_gpus,
+                    vram_gb: o.vram_gb,
+                },
+            )
+        })
+        .collect();
+    state.save()?;
+
     format::render_offers(&filtered);
     Ok(())
 }
@@ -273,6 +288,7 @@ fn cmd_config_edit() -> Result<()> {
 # disk = 50
 # boot = \"/Users/you/bin/vps-vllm-boot.sh\"
 # log_path = \"/var/log/vllm.log\"   # used by `silo logs`
+# block_arch = [\"Blackwell\"]   # bail out of `silo up` if offer is on a blocked GPU arch
 
 # [up.profiles.vllm.env]
 # MODEL = \"Qwen/Qwen2.5-72B-Instruct\"
@@ -537,6 +553,65 @@ fn run_chime(config: &config::Config) {
     }
 }
 
+fn check_arch_compat(
+    state: &State,
+    offer_id: &str,
+    block_arch: &[String],
+    model_id: Option<&str>,
+    skip: bool,
+) -> Result<()> {
+    if skip {
+        return Ok(());
+    }
+    let Some(offer) = state.last_search_results.get(offer_id) else {
+        if !block_arch.is_empty() || model_id.is_some() {
+            eprintln!(
+                "(compat check skipped: offer {offer_id} not in last search cache — run `silo search` first to enable)"
+            );
+        }
+        return Ok(());
+    };
+    let Some(arch) = providers::arch::arch_for(&offer.gpu_name) else {
+        eprintln!(
+            "(compat check skipped: unknown architecture for {} — extend providers::arch::arch_for)",
+            offer.gpu_name
+        );
+        return Ok(());
+    };
+
+    if block_arch.iter().any(|b| b.eq_ignore_ascii_case(arch)) {
+        anyhow::bail!(
+            "profile blocks '{}', but offer {} is {} ({}). Override with --skip-compat-check, edit profile.block_arch, or pick a different offer.",
+            arch,
+            offer_id,
+            offer.gpu_name,
+            arch
+        );
+    }
+
+    if let Some(model) = model_id {
+        match providers::arch::compat_check(model, arch) {
+            providers::arch::Compat::Ok => {}
+            providers::arch::Compat::Unstable(note) => {
+                eprintln!(
+                    "warning: model '{model}' on {} ({}): {note}",
+                    offer.gpu_name, arch
+                );
+                eprintln!("(proceeding; pass --skip-compat-check to silence)");
+            }
+            providers::arch::Compat::Broken(note) => {
+                anyhow::bail!(
+                    "known-bad combo: model '{model}' on {} ({}): {note}\n(override with --skip-compat-check if you want to test anyway)",
+                    offer.gpu_name,
+                    arch
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
 async fn cmd_up(
     provider: &AnyProvider,
     provider_name: &str,
@@ -544,6 +619,15 @@ async fn cmd_up(
     args: UpArgs,
 ) -> Result<()> {
     let resolved = resolve_up(&config.up, &args)?;
+    let state_pre = State::load()?;
+    let model_id = resolved.env.get("MODEL").map(|s| s.as_str());
+    check_arch_compat(
+        &state_pre,
+        &args.offer_id,
+        &resolved.block_arch,
+        model_id,
+        args.skip_compat_check,
+    )?;
 
     let boot_script = match &resolved.boot {
         Some(path) => Some(
@@ -615,6 +699,7 @@ struct ResolvedUp {
     disk: u32,
     boot: Option<std::path::PathBuf>,
     env: std::collections::HashMap<String, String>,
+    block_arch: Vec<String>,
 }
 
 fn resolve_up(up_config: &config::UpConfig, args: &UpArgs) -> Result<ResolvedUp> {
@@ -639,6 +724,7 @@ fn resolve_up(up_config: &config::UpConfig, args: &UpArgs) -> Result<ResolvedUp>
         .unwrap_or_else(|| "ubuntu:22.04".to_string());
     let disk = args.disk.or(profile.disk).unwrap_or(200);
     let boot = args.boot.clone().or(profile.boot);
+    let block_arch = profile.block_arch.clone();
 
     let mut env = profile.env.clone();
     for raw in &args.env {
@@ -653,6 +739,7 @@ fn resolve_up(up_config: &config::UpConfig, args: &UpArgs) -> Result<ResolvedUp>
         disk,
         boot,
         env,
+        block_arch,
     })
 }
 

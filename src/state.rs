@@ -7,6 +7,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CachedOffer {
+    pub gpu_name: String,
+    pub num_gpus: u32,
+    pub vram_gb: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActiveInstance {
     pub instance_id: String,
     pub ssh_host: Option<String>,
@@ -26,6 +33,8 @@ pub struct State {
     pub last_verified_only: bool,
     #[serde(default)]
     pub last_include_deverified: bool,
+    #[serde(default)]
+    pub last_search_results: HashMap<String, CachedOffer>,
 }
 
 impl State {
