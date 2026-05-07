@@ -9,7 +9,9 @@ pub mod state;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use clap::Parser;
-use cli::{Cli, Command, ConfigAction, ConfigArgs, ModelsArgs, SearchArgs, TunnelArgs, UpArgs};
+use cli::{
+    Cli, Command, ConfigAction, ConfigArgs, ModelsArgs, PromptArgs, SearchArgs, TunnelArgs, UpArgs,
+};
 use providers::{AnyProvider, CreateConfig, Offer, SearchFilters};
 use ssh::SshTarget;
 use state::{ActiveInstance, State};
@@ -38,8 +40,93 @@ pub async fn run() -> Result<()> {
         Command::Tunnel(args) => cmd_tunnel(&provider_name, args).await,
         Command::Down => cmd_down(&provider, &provider_name).await,
         Command::Cost => cmd_cost(&provider, &provider_name).await,
+        Command::Prompt(args) => cmd_prompt(&provider_name, &config, args).await,
         Command::Config(_) | Command::Models(_) => unreachable!("handled above"),
     }
+}
+
+fn resolve_model_from_config(config: &config::Config) -> Option<String> {
+    let profile_name = config.up.default_profile.as_deref()?;
+    let profile = config.up.profiles.get(profile_name)?;
+    profile.env.get("MODEL").cloned()
+}
+
+async fn cmd_prompt(
+    provider_name: &str,
+    config: &config::Config,
+    args: PromptArgs,
+) -> Result<()> {
+    let state = State::load()?;
+    let active = state
+        .instances
+        .get(provider_name)
+        .ok_or_else(|| anyhow::anyhow!("no active instance for {provider_name}; run `silo up <id>` first"))?;
+    let host = active
+        .ssh_host
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("ssh_host unknown — run `silo status` first"))?;
+    let port = active
+        .ssh_port
+        .ok_or_else(|| anyhow::anyhow!("ssh_port unknown — run `silo status` first"))?;
+
+    let model = args
+        .model
+        .clone()
+        .or_else(|| resolve_model_from_config(config))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no model specified — pass --model or set [up.profiles.<name>.env].MODEL in config"
+            )
+        })?;
+
+    let mut messages = Vec::new();
+    if let Some(sys) = &args.system {
+        messages.push(serde_json::json!({"role": "system", "content": sys}));
+    }
+    messages.push(serde_json::json!({"role": "user", "content": args.prompt}));
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+        "max_tokens": args.max_tokens,
+    });
+    let body_bytes = serde_json::to_vec(&body)?;
+
+    let target = SshTarget::new(host, port);
+    let remote_cmd: Vec<String> = vec![
+        "curl".into(),
+        "-s".into(),
+        "http://localhost:8000/v1/chat/completions".into(),
+        "-H".into(),
+        "Content-Type: application/json".into(),
+        "-d".into(),
+        "@-".into(),
+    ];
+
+    let stdout = target.run_ssh_with_stdin(&remote_cmd, &body_bytes)?;
+
+    if args.json {
+        println!("{stdout}");
+        return Ok(());
+    }
+
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).with_context(|| {
+        format!(
+            "decoding API response (vLLM may not be ready yet — try `silo ssh -- 'curl -sf http://localhost:8000/health'`):\n{stdout}"
+        )
+    })?;
+
+    if let Some(content) = parsed
+        .pointer("/choices/0/message/content")
+        .and_then(|v| v.as_str())
+    {
+        println!("{content}");
+    } else if let Some(error) = parsed.get("error") {
+        anyhow::bail!("API returned error: {error}");
+    } else {
+        println!("{stdout}");
+    }
+    Ok(())
 }
 
 async fn cmd_models(args: &ModelsArgs) -> Result<()> {
@@ -657,6 +744,42 @@ mod tests {
             tags: vec![],
             safetensors: None,
         }
+    }
+
+    #[test]
+    fn resolve_model_from_config_uses_default_profile() {
+        let mut profile = config::UpProfile::default();
+        profile.env.insert("MODEL".into(), "openai/gpt-oss-120b".into());
+        let mut profiles = std::collections::HashMap::new();
+        profiles.insert("vllm".into(), profile);
+        let cfg = config::Config {
+            vast_api_key: None,
+            search: config::SearchConfig::default(),
+            up: config::UpConfig {
+                default_profile: Some("vllm".into()),
+                profiles,
+            },
+        };
+        assert_eq!(resolve_model_from_config(&cfg), Some("openai/gpt-oss-120b".into()));
+    }
+
+    #[test]
+    fn resolve_model_from_config_returns_none_when_unset() {
+        let cfg = config::Config::default();
+        assert_eq!(resolve_model_from_config(&cfg), None);
+    }
+
+    #[test]
+    fn resolve_model_from_config_returns_none_when_profile_missing() {
+        let cfg = config::Config {
+            vast_api_key: None,
+            search: config::SearchConfig::default(),
+            up: config::UpConfig {
+                default_profile: Some("vllm".into()),
+                profiles: std::collections::HashMap::new(),
+            },
+        };
+        assert_eq!(resolve_model_from_config(&cfg), None);
     }
 
     #[test]

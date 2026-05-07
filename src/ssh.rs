@@ -57,6 +57,30 @@ impl SshTarget {
         }
         Ok(())
     }
+
+    pub fn run_ssh_with_stdin(&self, remote_command: &[String], stdin_bytes: &[u8]) -> Result<String> {
+        use std::io::Write;
+        use std::process::Stdio;
+
+        let mut child = self
+            .build_ssh(remote_command)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("spawning ssh")?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(stdin_bytes).context("writing to ssh stdin")?;
+        }
+
+        let output = child.wait_with_output().context("waiting for ssh")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("ssh exited with {}: {}", output.status, stderr.trim());
+        }
+        String::from_utf8(output.stdout).context("ssh stdout not valid UTF-8")
+    }
 }
 
 #[cfg(test)]

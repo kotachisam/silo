@@ -26,6 +26,22 @@ pub enum Command {
     Config(ConfigArgs),
     /// List trending text-generation models from Hugging Face
     Models(ModelsArgs),
+    /// Send a one-shot prompt to the active instance's vLLM endpoint
+    Prompt(PromptArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct PromptArgs {
+    /// The prompt text. Use quotes for multi-word prompts.
+    pub prompt: String,
+    #[arg(long, help = "Model name (defaults to active profile's MODEL env)")]
+    pub model: Option<String>,
+    #[arg(long, default_value_t = 1024, help = "Maximum tokens in response")]
+    pub max_tokens: u32,
+    #[arg(long, help = "Print full JSON response instead of just message content")]
+    pub json: bool,
+    #[arg(long, help = "Optional system prompt")]
+    pub system: Option<String>,
 }
 
 #[derive(Args, Debug)]
