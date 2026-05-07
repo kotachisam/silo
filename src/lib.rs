@@ -321,17 +321,49 @@ fn filter_by_status(offers: Vec<Offer>, verified_only: bool, include_deverified:
         .collect()
 }
 
-fn resolve_log_path(config: &config::Config, override_path: Option<&str>) -> String {
-    if let Some(p) = override_path {
-        return p.to_string();
-    }
-    let from_profile = config
+fn profile_log_path(config: &config::Config) -> Option<String> {
+    config
         .up
         .default_profile
         .as_deref()
         .and_then(|name| config.up.profiles.get(name))
-        .and_then(|p| p.log_path.clone());
-    from_profile.unwrap_or_else(|| "/var/log/vllm.log".to_string())
+        .and_then(|p| p.log_path.clone())
+}
+
+fn list_remote_logs(target: &SshTarget) -> Result<Vec<String>> {
+    let cmd = vec![
+        "sh".into(),
+        "-c".into(),
+        "ls -1t /var/log/*.log 2>/dev/null".into(),
+    ];
+    let stdout = target.run_ssh_with_stdin(&cmd, &[])?;
+    Ok(stdout
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect())
+}
+
+fn discover_log_path(target: &SshTarget) -> Result<String> {
+    let logs = list_remote_logs(target)?;
+    match logs.len() {
+        0 => anyhow::bail!(
+            "no .log files found in /var/log/ on the instance. Pass --path or set log_path in profile config."
+        ),
+        1 => {
+            eprintln!("(auto-detected log: {})", logs[0]);
+            Ok(logs[0].clone())
+        }
+        _ => {
+            eprintln!("multiple logs available — pick one with --path:");
+            for log in &logs {
+                eprintln!("  {log}");
+            }
+            anyhow::bail!(
+                "ambiguous; specify --path or set log_path in [up.profiles.<name>] config"
+            )
+        }
+    }
 }
 
 async fn cmd_logs(
@@ -352,7 +384,27 @@ async fn cmd_logs(
         .ssh_port
         .ok_or_else(|| anyhow::anyhow!("ssh_port unknown — run `silo status` first"))?;
     let target = SshTarget::new(host, port);
-    let log_path = resolve_log_path(config, args.path.as_deref());
+
+    if args.list {
+        let logs = list_remote_logs(&target)?;
+        if logs.is_empty() {
+            println!("(no .log files found in /var/log/)");
+        } else {
+            println!("available logs (most recent first):");
+            for log in logs {
+                println!("  {log}");
+            }
+        }
+        return Ok(());
+    }
+
+    let log_path = if let Some(p) = args.path.as_deref() {
+        p.to_string()
+    } else if let Some(p) = profile_log_path(config) {
+        p
+    } else {
+        discover_log_path(&target)?
+    };
 
     if let Some(save) = args.save {
         let local_path = if save.is_empty() {
@@ -866,13 +918,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_log_path_uses_override_when_present() {
-        let cfg = config::Config::default();
-        assert_eq!(resolve_log_path(&cfg, Some("/custom/path.log")), "/custom/path.log");
-    }
-
-    #[test]
-    fn resolve_log_path_falls_back_to_profile() {
+    fn profile_log_path_returns_path_when_configured() {
         let profile = config::UpProfile {
             log_path: Some("/var/log/custom.log".into()),
             ..Default::default()
@@ -888,13 +934,13 @@ mod tests {
                 chime_command: None,
             },
         };
-        assert_eq!(resolve_log_path(&cfg, None), "/var/log/custom.log");
+        assert_eq!(profile_log_path(&cfg), Some("/var/log/custom.log".into()));
     }
 
     #[test]
-    fn resolve_log_path_default_when_unconfigured() {
+    fn profile_log_path_returns_none_when_unconfigured() {
         let cfg = config::Config::default();
-        assert_eq!(resolve_log_path(&cfg, None), "/var/log/vllm.log");
+        assert_eq!(profile_log_path(&cfg), None);
     }
 
     #[test]

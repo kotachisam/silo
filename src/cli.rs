@@ -39,8 +39,10 @@ pub struct LogsArgs {
     pub follow: bool,
     #[arg(short = 's', long, num_args = 0..=1, default_missing_value = "", help = "Save full log to local file (auto-named if no path given)")]
     pub save: Option<String>,
-    #[arg(long, help = "Override remote log path (default: profile.log_path or /var/log/vllm.log)")]
+    #[arg(long, help = "Override remote log path (else: profile.log_path → auto-discover /var/log/*.log)")]
     pub path: Option<String>,
+    #[arg(long, help = "List available .log files on the instance and exit")]
+    pub list: bool,
 }
 
 #[derive(Args, Debug)]
