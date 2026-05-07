@@ -49,7 +49,7 @@ async fn cmd_models(args: &ModelsArgs) -> Result<()> {
         .await?;
     let enriched = client.enrich_missing_params(raw).await;
     let total = enriched.len();
-    let filtered = filter_models(enriched, args.min_params, args.max_params);
+    let filtered = filter_models(enriched, args.min_params, args.max_params, args.min_downloads);
     let filtered_out = total - filtered.len();
     format::render_models(&filtered, filtered_out);
     Ok(())
@@ -59,6 +59,7 @@ fn filter_models(
     raw: Vec<models::HfModel>,
     min_params: Option<f32>,
     max_params: Option<f32>,
+    min_downloads: Option<u64>,
 ) -> Vec<models::HfModel> {
     raw.into_iter()
         .filter(|m| {
@@ -70,6 +71,11 @@ fn filter_models(
             }
             if let Some(max) = max_params
                 && p.map(|v| v > max).unwrap_or(false)
+            {
+                return false;
+            }
+            if let Some(min_dl) = min_downloads
+                && m.downloads < min_dl
             {
                 return false;
             }
@@ -132,6 +138,13 @@ fn cmd_config_show() -> Result<()> {
         .with_context(|| format!("reading {}", path.display()))?;
     let masked = config::mask_secrets(&contents);
     println!("# {}\n{masked}", path.display());
+
+    if let Err(e) = config::Config::load_from(&path) {
+        eprintln!();
+        eprintln!("warning: config does not parse cleanly — silo will fail on every command except `silo config show/edit` until fixed:");
+        eprintln!("  {e:#}");
+        eprintln!("(run `silo config edit` to fix)");
+    }
     Ok(())
 }
 
@@ -185,6 +198,14 @@ fn cmd_config_edit() -> Result<()> {
         .with_context(|| format!("spawning {editor}"))?;
     if !status.success() {
         anyhow::bail!("{editor} exited with {status}");
+    }
+
+    if let Err(e) = config::Config::load_from(&path) {
+        eprintln!();
+        eprintln!("warning: edited config does not parse cleanly — silo will fail until fixed:");
+        eprintln!("  {e:#}");
+        eprintln!("(re-run `silo config edit` to fix; original file is unchanged on disk)");
+        return Err(e);
     }
     Ok(())
 }
@@ -601,7 +622,7 @@ mod tests {
             model("small", Some(8)),
             model("unknown", None),
         ];
-        let result = filter_models(raw, Some(70.0), None);
+        let result = filter_models(raw, Some(70.0), None, None);
         let ids: Vec<_> = result.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, vec!["big", "medium"]);
     }
@@ -614,7 +635,7 @@ mod tests {
             model("small", Some(8)),
             model("unknown", None),
         ];
-        let result = filter_models(raw, None, Some(70.0));
+        let result = filter_models(raw, None, Some(70.0), None);
         let ids: Vec<_> = result.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, vec!["medium", "small", "unknown"]);
     }
@@ -622,7 +643,32 @@ mod tests {
     #[test]
     fn filter_models_no_filter_keeps_everything() {
         let raw = vec![model("a", Some(70)), model("b", None)];
-        let result = filter_models(raw, None, None);
+        let result = filter_models(raw, None, None, None);
         assert_eq!(result.len(), 2);
+    }
+
+    fn model_with_downloads(id: &str, downloads: u64) -> models::HfModel {
+        models::HfModel {
+            id: id.into(),
+            downloads,
+            likes: 0,
+            last_modified: None,
+            pipeline_tag: None,
+            tags: vec![],
+            safetensors: None,
+        }
+    }
+
+    #[test]
+    fn filter_models_min_downloads_drops_amateur_reuploads() {
+        let raw = vec![
+            model_with_downloads("real/model", 50_000),
+            model_with_downloads("Pskumar91/DeepSeek-V4-Pro", 0),
+            model_with_downloads("kiseokshforg/gpt-oss-120b", 0),
+            model_with_downloads("legit/quant", 5_800),
+        ];
+        let result = filter_models(raw, None, None, Some(1000));
+        let ids: Vec<_> = result.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["real/model", "legit/quant"]);
     }
 }

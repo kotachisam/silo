@@ -38,6 +38,8 @@ pub struct ModelsArgs {
     pub min_params: Option<f32>,
     #[arg(long = "max", help = "Filter to models with at most N billion parameters")]
     pub max_params: Option<f32>,
+    #[arg(long, help = "Filter to models with at least N downloads (cuts amateur re-uploads)")]
+    pub min_downloads: Option<u64>,
     #[arg(long, value_enum, default_value = "trending", help = "Sort order")]
     pub sort: SortOrder,
 }
