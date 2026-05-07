@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -30,7 +30,7 @@ pub enum Command {
 
 #[derive(Args, Debug)]
 pub struct ModelsArgs {
-    #[arg(short = 'l', long, default_value_t = 20, help = "Maximum number of models to return")]
+    #[arg(short = 'l', long, default_value_t = 20, help = "Maximum number of models to fetch (HF allows up to 1000)")]
     pub limit: u32,
     #[arg(short = 's', long, help = "Substring filter on model name (e.g. 'coder', 'reasoning')")]
     pub search: Option<String>,
@@ -38,6 +38,34 @@ pub struct ModelsArgs {
     pub min_params: Option<f32>,
     #[arg(long = "max", help = "Filter to models with at most N billion parameters")]
     pub max_params: Option<f32>,
+    #[arg(long, value_enum, default_value = "trending", help = "Sort order")]
+    pub sort: SortOrder,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum SortOrder {
+    /// Currently trending (default — what's hot today)
+    Trending,
+    /// All-time popular (cumulative downloads)
+    Downloads,
+    /// Community favourites (HF likes)
+    Likes,
+    /// Most recently updated weights
+    Modified,
+    /// Most recently uploaded
+    Created,
+}
+
+impl SortOrder {
+    pub fn to_hf_field(self) -> &'static str {
+        match self {
+            SortOrder::Trending => "trendingScore",
+            SortOrder::Downloads => "downloads",
+            SortOrder::Likes => "likes",
+            SortOrder::Modified => "lastModified",
+            SortOrder::Created => "createdAt",
+        }
+    }
 }
 
 #[derive(Args, Debug)]

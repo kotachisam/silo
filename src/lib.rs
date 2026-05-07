@@ -45,7 +45,7 @@ pub async fn run() -> Result<()> {
 async fn cmd_models(args: &ModelsArgs) -> Result<()> {
     let client = models::HfClient::new();
     let raw = client
-        .trending_text_generation(args.limit, args.search.as_deref())
+        .list_text_generation(args.limit, args.search.as_deref(), args.sort.to_hf_field())
         .await?;
     let enriched = client.enrich_missing_params(raw).await;
     let total = enriched.len();

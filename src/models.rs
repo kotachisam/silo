@@ -151,16 +151,17 @@ impl HfClient {
         models
     }
 
-    pub async fn trending_text_generation(
+    pub async fn list_text_generation(
         &self,
         limit: u32,
         search: Option<&str>,
+        sort_field: &str,
     ) -> Result<Vec<HfModel>> {
         let url = format!("{}/api/models", self.base_url);
         let limit_str = limit.to_string();
         let mut params: Vec<(&str, &str)> = vec![
             ("pipeline_tag", "text-generation"),
-            ("sort", "trendingScore"),
+            ("sort", sort_field),
             ("direction", "-1"),
             ("limit", &limit_str),
             ("full", "true"),
@@ -318,7 +319,7 @@ mod tests {
             .await;
 
         let client = HfClient::with_base_url(server.url());
-        let models = client.trending_text_generation(5, None).await.unwrap();
+        let models = client.list_text_generation(5, None, "trendingScore").await.unwrap();
         assert!(models.is_empty());
         mock.assert_async().await;
     }
@@ -355,7 +356,7 @@ mod tests {
             .await;
 
         let client = HfClient::with_base_url(server.url());
-        let models = client.trending_text_generation(5, None).await.unwrap();
+        let models = client.list_text_generation(5, None, "trendingScore").await.unwrap();
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].id, "deepseek-ai/DeepSeek-V4-Pro");
         let p0 = models[0].params_billions().unwrap();
@@ -475,7 +476,7 @@ mod tests {
             .await;
 
         let client = HfClient::with_base_url(server.url());
-        let _ = client.trending_text_generation(5, Some("coder")).await.unwrap();
+        let _ = client.list_text_generation(5, Some("coder"), "trendingScore").await.unwrap();
         mock.assert_async().await;
     }
 }
