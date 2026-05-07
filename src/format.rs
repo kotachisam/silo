@@ -31,8 +31,11 @@ pub fn render_models(models: &[HfModel], filtered_out: usize) {
         );
     }
     if filtered_out > 0 {
+        let total = models.len() + filtered_out;
         println!();
-        println!("({filtered_out} more results excluded by --min/--max)");
+        println!(
+            "({filtered_out} of {total} in this batch excluded by --min/--max — pass `--limit 50` or higher to widen the trending pool)"
+        );
     }
 }
 
