@@ -1,5 +1,61 @@
+use crate::models::HfModel;
 use crate::providers::Offer;
 use owo_colors::OwoColorize;
+
+pub fn render_models(models: &[HfModel]) {
+    if models.is_empty() {
+        println!("(no models matched)");
+        return;
+    }
+    println!(
+        "{:>3}  {:<55}  {:>7}  {:>10}  {:<10}",
+        "#".bold(),
+        "Model".bold(),
+        "Params".bold(),
+        "Downloads".bold(),
+        "Updated".bold(),
+    );
+    for (i, m) in models.iter().enumerate() {
+        println!(
+            "{:>3}  {:<55}  {:>7}  {:>10}  {:<10}",
+            i + 1,
+            truncate(&m.id, 55),
+            m.params_billions()
+                .map(format_params)
+                .unwrap_or_else(|| "?".into()),
+            humanize_downloads(m.downloads),
+            short_date(m.last_modified.as_deref()),
+        );
+    }
+}
+
+fn format_params(p: f32) -> String {
+    if p >= 1000.0 {
+        format!("{:.1}T", p / 1000.0)
+    } else if p >= 100.0 {
+        format!("{p:.0}B")
+    } else if p >= 10.0 {
+        format!("{p:.1}B")
+    } else {
+        format!("{p:.2}B")
+    }
+}
+
+fn humanize_downloads(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1e6)
+    } else if n >= 1_000 {
+        format!("{:.1}k", n as f64 / 1e3)
+    } else {
+        n.to_string()
+    }
+}
+
+fn short_date(s: Option<&str>) -> String {
+    s.and_then(|d| d.split('T').next())
+        .unwrap_or("?")
+        .to_string()
+}
 
 pub fn render_offers(offers: &[Offer]) {
     if offers.is_empty() {

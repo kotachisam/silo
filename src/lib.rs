@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod config;
 pub mod format;
+pub mod models;
 pub mod providers;
 pub mod ssh;
 pub mod state;
@@ -8,7 +9,7 @@ pub mod state;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use clap::Parser;
-use cli::{Cli, Command, ConfigAction, ConfigArgs, SearchArgs, TunnelArgs, UpArgs};
+use cli::{Cli, Command, ConfigAction, ConfigArgs, ModelsArgs, SearchArgs, TunnelArgs, UpArgs};
 use providers::{AnyProvider, CreateConfig, Offer, SearchFilters};
 use ssh::SshTarget;
 use state::{ActiveInstance, State};
@@ -19,6 +20,9 @@ pub async fn run() -> Result<()> {
 
     if let Command::Config(args) = &cli.command {
         return cmd_config(args).await;
+    }
+    if let Command::Models(args) = &cli.command {
+        return cmd_models(args).await;
     }
 
     let config = config::Config::load()?;
@@ -34,8 +38,41 @@ pub async fn run() -> Result<()> {
         Command::Tunnel(args) => cmd_tunnel(&provider_name, args).await,
         Command::Down => cmd_down(&provider, &provider_name).await,
         Command::Cost => cmd_cost(&provider, &provider_name).await,
-        Command::Config(_) => unreachable!("handled above"),
+        Command::Config(_) | Command::Models(_) => unreachable!("handled above"),
     }
+}
+
+async fn cmd_models(args: &ModelsArgs) -> Result<()> {
+    let client = models::HfClient::new();
+    let raw = client
+        .trending_text_generation(args.limit, args.search.as_deref())
+        .await?;
+    let filtered = filter_models(raw, args.min_params, args.max_params);
+    format::render_models(&filtered);
+    Ok(())
+}
+
+fn filter_models(
+    raw: Vec<models::HfModel>,
+    min_params: Option<f32>,
+    max_params: Option<f32>,
+) -> Vec<models::HfModel> {
+    raw.into_iter()
+        .filter(|m| {
+            let p = m.params_billions();
+            if let Some(min) = min_params
+                && p.map(|v| v < min).unwrap_or(true)
+            {
+                return false;
+            }
+            if let Some(max) = max_params
+                && p.map(|v| v > max).unwrap_or(false)
+            {
+                return false;
+            }
+            true
+        })
+        .collect()
 }
 
 fn resolve_provider(flag: &Option<String>, state: &State) -> String {
@@ -537,5 +574,52 @@ mod tests {
         let result = filter_by_status(offers, false, false);
         let ids: Vec<_> = result.iter().map(|o| o.id.as_str()).collect();
         assert_eq!(ids, vec!["b"]);
+    }
+
+    fn model(id: &str, params_billions: Option<u64>) -> models::HfModel {
+        models::HfModel {
+            id: id.into(),
+            downloads: 0,
+            likes: 0,
+            last_modified: None,
+            pipeline_tag: None,
+            tags: vec![],
+            safetensors: params_billions.map(|b| models::SafetensorsInfo {
+                total: Some(b * 1_000_000_000),
+            }),
+        }
+    }
+
+    #[test]
+    fn filter_models_min_params_drops_smaller_and_unknown() {
+        let raw = vec![
+            model("big", Some(120)),
+            model("medium", Some(70)),
+            model("small", Some(8)),
+            model("unknown", None),
+        ];
+        let result = filter_models(raw, Some(70.0), None);
+        let ids: Vec<_> = result.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["big", "medium"]);
+    }
+
+    #[test]
+    fn filter_models_max_params_drops_larger() {
+        let raw = vec![
+            model("big", Some(120)),
+            model("medium", Some(70)),
+            model("small", Some(8)),
+            model("unknown", None),
+        ];
+        let result = filter_models(raw, None, Some(70.0));
+        let ids: Vec<_> = result.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["medium", "small", "unknown"]);
+    }
+
+    #[test]
+    fn filter_models_no_filter_keeps_everything() {
+        let raw = vec![model("a", Some(70)), model("b", None)];
+        let result = filter_models(raw, None, None);
+        assert_eq!(result.len(), 2);
     }
 }

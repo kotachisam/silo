@@ -24,6 +24,20 @@ pub enum Command {
     Down,
     Cost,
     Config(ConfigArgs),
+    /// List trending text-generation models from Hugging Face
+    Models(ModelsArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ModelsArgs {
+    #[arg(short = 'l', long, default_value_t = 20, help = "Maximum number of models to return")]
+    pub limit: u32,
+    #[arg(short = 's', long, help = "Substring filter on model name (e.g. 'coder', 'reasoning')")]
+    pub search: Option<String>,
+    #[arg(long = "min", help = "Filter to models with at least N billion parameters")]
+    pub min_params: Option<f32>,
+    #[arg(long = "max", help = "Filter to models with at most N billion parameters")]
+    pub max_params: Option<f32>,
 }
 
 #[derive(Args, Debug)]
@@ -43,21 +57,21 @@ pub enum ConfigAction {
 #[derive(Args, Debug)]
 #[command(after_long_help = SEARCH_LEGEND)]
 pub struct SearchArgs {
-    #[arg(long, help = "Number of GPUs per offer (config: search.default_gpus, fallback: 1)")]
+    #[arg(short = 'g', long, help = "Number of GPUs per offer (config: search.default_gpus, fallback: 1)")]
     pub gpus: Option<u32>,
-    #[arg(long, help = "Minimum VRAM per GPU in GB (config: search.default_vram_gb, fallback: 90)")]
+    #[arg(short = 'v', long, help = "Minimum VRAM per GPU in GB (config: search.default_vram_gb, fallback: 90)")]
     pub vram: Option<u32>,
-    #[arg(long, help = "Minimum disk space in GB (config: search.default_disk_gb, fallback: 200)")]
+    #[arg(short = 'd', long, help = "Minimum disk space in GB (config: search.default_disk_gb, fallback: 200)")]
     pub disk: Option<u32>,
     #[arg(long, help = "Maximum hourly price in USD (config: search.default_max_price)")]
     pub max_price: Option<f32>,
-    #[arg(long, help = "Geographic region (config: search.default_region, fallback: US)")]
+    #[arg(short = 'r', long, help = "Geographic region (config: search.default_region, fallback: US)")]
     pub region: Option<String>,
     #[arg(long, help = "Minimum host reliability 0-1 (config: search.default_reliability, fallback: 0.99)")]
     pub reliability: Option<f32>,
     #[arg(long, help = "GPU model exact match (e.g. 'RTX 4090')")]
     pub gpu_name: Option<String>,
-    #[arg(long, help = "Maximum offers to return (config: search.default_limit, fallback: 20)")]
+    #[arg(short = 'l', long, help = "Maximum offers to return (config: search.default_limit, fallback: 20)")]
     pub limit: Option<u32>,
     #[arg(long, help = "Force verified-only filter (presence overrides config to true)")]
     pub verified_only: bool,
@@ -114,19 +128,19 @@ pub struct UpArgs {
     pub offer_id: String,
     #[arg(long, help = "Profile name from config (config: up.default_profile)")]
     pub profile: Option<String>,
-    #[arg(long, help = "Docker image (overrides profile, fallback: ubuntu:22.04)")]
+    #[arg(short = 'i', long, help = "Docker image (overrides profile, fallback: ubuntu:22.04)")]
     pub image: Option<String>,
-    #[arg(long, help = "Disk size in GB (overrides profile, fallback: 200)")]
+    #[arg(short = 'd', long, help = "Disk size in GB (overrides profile, fallback: 200)")]
     pub disk: Option<u32>,
-    #[arg(long, help = "Path to boot script (overrides profile)")]
+    #[arg(short = 'b', long, help = "Path to boot script (overrides profile)")]
     pub boot: Option<PathBuf>,
-    #[arg(long = "env", help = "Env var KEY=VALUE to inject (repeatable, overrides profile)")]
+    #[arg(short = 'e', long = "env", help = "Env var KEY=VALUE to inject (repeatable, overrides profile)")]
     pub env: Vec<String>,
 }
 
 #[derive(Args, Debug)]
 pub struct TunnelArgs {
     pub port: u16,
-    #[arg(long)]
+    #[arg(short = 'r', long)]
     pub remote_port: Option<u16>,
 }
