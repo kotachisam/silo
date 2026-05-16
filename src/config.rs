@@ -212,16 +212,16 @@ disk = 200
 
     #[test]
     fn mask_secrets_masks_token_and_key_lines() {
-        let input = r#"vast_api_key = "REDACTED_VAST_KEY"
+        let input = r#"vast_api_key = "deadbeefcafebabe1234567890abcdef0123456789abcdeffedcba9876543210"
 
 [up.profiles.vllm.env]
 MODEL = "Qwen/Qwen2.5-72B-Instruct"
 HF_TOKEN = "hf_supersecretvalue123456"
 "#;
         let masked = mask_secrets(input);
-        assert!(masked.contains("\"ad26...ed89\""));
+        assert!(masked.contains("\"dead...3210\""));
         assert!(masked.contains("\"hf_s...3456\""));
-        assert!(!masked.contains("ad26806190f79afba"));
+        assert!(!masked.contains("cafebabe12345678"));
         assert!(!masked.contains("supersecretvalue"));
         assert!(masked.contains(r#"MODEL = "Qwen/Qwen2.5-72B-Instruct""#));
     }
