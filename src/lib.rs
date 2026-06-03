@@ -93,7 +93,7 @@ async fn cmd_prompt(provider_name: &str, config: &config::Config, args: PromptAr
     let remote_cmd: Vec<String> = vec![
         "curl".into(),
         "-s".into(),
-        "http://localhost:8000/v1/chat/completions".into(),
+        "http://127.0.0.1:8000/v1/chat/completions".into(),
         "-H".into(),
         "Content-Type: application/json".into(),
         "-d".into(),
@@ -109,7 +109,7 @@ async fn cmd_prompt(provider_name: &str, config: &config::Config, args: PromptAr
 
     let parsed: serde_json::Value = serde_json::from_str(&stdout).with_context(|| {
         format!(
-            "decoding API response (vLLM may not be ready yet — try `silo ssh -- 'curl -sf http://localhost:8000/health'`):\n{stdout}"
+            "decoding API response (vLLM may not be ready yet — try `silo ssh -- 'curl -sf http://127.0.0.1:8000/health'`):\n{stdout}"
         )
     })?;
 
@@ -248,13 +248,21 @@ fn cmd_config_show() -> Result<()> {
     let masked = config::mask_secrets(&contents);
     println!("# {}\n{masked}", path.display());
 
-    if let Err(e) = config::Config::load_from(&path) {
-        eprintln!();
-        eprintln!(
-            "warning: config does not parse cleanly — silo will fail on every command except `silo config show/edit` until fixed:"
-        );
-        eprintln!("  {e:#}");
-        eprintln!("(run `silo config edit` to fix)");
+    match config::Config::load_from(&path) {
+        Err(e) => {
+            eprintln!();
+            eprintln!(
+                "warning: config does not parse cleanly — silo will fail on every command except `silo config show/edit` until fixed:"
+            );
+            eprintln!("  {e:#}");
+            eprintln!("(run `silo config edit` to fix)");
+        }
+        Ok(cfg) => {
+            if let Some(issue) = cfg.default_profile_issue() {
+                eprintln!();
+                eprintln!("warning: {issue}");
+            }
+        }
     }
     Ok(())
 }
@@ -566,11 +574,16 @@ async fn cmd_up(
     let resolved = resolve_up(&config.up, &args)?;
     let state_pre = State::load()?;
     let model_id = resolved.env.get("MODEL").cloned();
+    let tp_size = resolved
+        .env
+        .get("TP_SIZE")
+        .and_then(|s| s.parse::<u32>().ok());
     let workload = workloads::AnyWorkload::from_name(
         &resolved.workload,
         workloads::WorkloadInputs {
             block_arch: &resolved.block_arch,
             model_id,
+            tp_size,
             ready_probe: resolved.ready_probe.clone(),
         },
     )?;
@@ -663,9 +676,14 @@ fn resolve_up(up_config: &config::UpConfig, args: &UpArgs) -> Result<ResolvedUp>
         .profile
         .clone()
         .or_else(|| up_config.default_profile.clone());
+    let has_inline = args.image.is_some() || args.disk.is_some() || args.boot.is_some();
     let profile = match &profile_name {
         Some(name) => match up_config.profiles.get(name) {
             Some(p) => p.clone(),
+            None if has_inline => {
+                eprintln!("(profile '{name}' not found; using inline --image/--disk/--boot)");
+                config::UpProfile::default()
+            }
             None => anyhow::bail!(
                 "profile '{name}' not found in config (define [up.profiles.{name}] or pass --image/--disk/--boot directly)"
             ),
@@ -932,6 +950,38 @@ mod tests {
     fn ultimate_fallback_is_vast() {
         let resolved = resolve_provider(&None, &State::default());
         assert_eq!(resolved, "vast");
+    }
+
+    fn up_args(profile: Option<&str>, image: Option<&str>) -> UpArgs {
+        UpArgs {
+            offer_id: "1".into(),
+            profile: profile.map(String::from),
+            image: image.map(String::from),
+            disk: image.map(|_| 30),
+            boot: None,
+            env: vec![],
+            wait: false,
+            skip_compat_check: false,
+        }
+    }
+
+    #[test]
+    fn resolve_up_falls_back_to_default_when_profile_missing_but_inline_given() {
+        let up = config::UpConfig {
+            default_profile: Some("ghost".into()),
+            ..Default::default()
+        };
+        let resolved = resolve_up(&up, &up_args(None, Some("ubuntu:22.04"))).unwrap();
+        assert_eq!(resolved.image, "ubuntu:22.04");
+    }
+
+    #[test]
+    fn resolve_up_bails_when_profile_missing_and_no_inline() {
+        let up = config::UpConfig {
+            default_profile: Some("ghost".into()),
+            ..Default::default()
+        };
+        assert!(resolve_up(&up, &up_args(None, None)).is_err());
     }
 
     fn offer(id: &str, status: Option<&str>) -> Offer {

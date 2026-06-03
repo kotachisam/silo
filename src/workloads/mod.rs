@@ -19,6 +19,7 @@ pub enum AnyWorkload {
 pub struct WorkloadInputs<'a> {
     pub block_arch: &'a [String],
     pub model_id: Option<String>,
+    pub tp_size: Option<u32>,
     pub ready_probe: Option<String>,
 }
 
@@ -28,6 +29,7 @@ impl AnyWorkload {
             "inference" => Ok(Self::Inference(inference::InferenceWorkload {
                 block_arch: inputs.block_arch.to_vec(),
                 model_id: inputs.model_id,
+                tp_size: inputs.tp_size,
             })),
             "mining" => Ok(Self::Mining(mining::MiningWorkload {
                 ready_probe: inputs.ready_probe,
@@ -71,6 +73,7 @@ mod tests {
             WorkloadInputs {
                 block_arch: &[],
                 model_id: None,
+                tp_size: None,
                 ready_probe: None,
             },
         )
@@ -82,6 +85,7 @@ mod tests {
             WorkloadInputs {
                 block_arch: &[],
                 model_id: None,
+                tp_size: None,
                 ready_probe: Some("true".into()),
             },
         )
@@ -96,6 +100,7 @@ mod tests {
             WorkloadInputs {
                 block_arch: &[],
                 model_id: None,
+                tp_size: None,
                 ready_probe: None,
             },
         );

@@ -1,8 +1,10 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("SILO_GIT_SHA"), ")");
+
 #[derive(Parser, Debug)]
-#[command(name = "silo", version, about = "Ephemeral GPU rental orchestration")]
+#[command(name = "silo", version = VERSION, about = "Ephemeral GPU rental orchestration")]
 pub struct Cli {
     #[arg(short = 'p', long, global = true)]
     pub provider: Option<String>,

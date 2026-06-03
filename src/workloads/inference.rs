@@ -7,6 +7,7 @@ use anyhow::Result;
 pub struct InferenceWorkload {
     pub block_arch: Vec<String>,
     pub model_id: Option<String>,
+    pub tp_size: Option<u32>,
 }
 
 impl Workload for InferenceWorkload {
@@ -19,13 +20,23 @@ impl Workload for InferenceWorkload {
             return Ok(());
         }
         let Some(offer) = state.last_search_results.get(offer_id) else {
-            if !self.block_arch.is_empty() || self.model_id.is_some() {
+            if !self.block_arch.is_empty() || self.model_id.is_some() || self.tp_size.is_some() {
                 eprintln!(
                     "(compat check skipped: offer {offer_id} not in last search cache — run `silo search` first to enable)"
                 );
             }
             return Ok(());
         };
+        if let Some(tp) = self.tp_size
+            && tp > offer.num_gpus
+        {
+            anyhow::bail!(
+                "profile sets TP_SIZE={tp} but offer {offer_id} has only {} GPU(s) ({}). vLLM crashes when world size exceeds GPU count — pick a {tp}-GPU offer or set TP_SIZE={}.",
+                offer.num_gpus,
+                offer.gpu_name,
+                offer.num_gpus
+            );
+        }
         let Some(arch) = arch::arch_for(&offer.gpu_name) else {
             eprintln!(
                 "(compat check skipped: unknown architecture for {} — extend providers::arch::arch_for)",
@@ -72,7 +83,7 @@ impl Workload for InferenceWorkload {
             "-sf".into(),
             "-o".into(),
             "/dev/null".into(),
-            "http://localhost:8000/health".into(),
+            "http://127.0.0.1:8000/health".into(),
         ];
         target.run_ssh_with_stdin(&cmd, &[]).is_ok()
     }
@@ -101,6 +112,7 @@ mod tests {
         let w = InferenceWorkload {
             block_arch: vec!["Blackwell".into()],
             model_id: None,
+            tp_size: None,
         };
         let s = state_with_offer("42", "RTX PRO 6000");
         assert!(w.preflight(&s, "42", false).is_err());
@@ -111,6 +123,7 @@ mod tests {
         let w = InferenceWorkload {
             block_arch: vec!["Blackwell".into()],
             model_id: None,
+            tp_size: None,
         };
         let s = state_with_offer("42", "RTX PRO 6000");
         assert!(w.preflight(&s, "42", true).is_ok());
@@ -121,7 +134,30 @@ mod tests {
         let w = InferenceWorkload {
             block_arch: vec![],
             model_id: None,
+            tp_size: None,
         };
         assert!(w.preflight(&State::default(), "999", false).is_ok());
+    }
+
+    #[test]
+    fn preflight_bails_when_tp_exceeds_gpu_count() {
+        let w = InferenceWorkload {
+            block_arch: vec![],
+            model_id: None,
+            tp_size: Some(4),
+        };
+        let s = state_with_offer("42", "RTX 4090");
+        assert!(w.preflight(&s, "42", false).is_err());
+    }
+
+    #[test]
+    fn preflight_ok_when_tp_matches_gpu_count() {
+        let w = InferenceWorkload {
+            block_arch: vec![],
+            model_id: None,
+            tp_size: Some(1),
+        };
+        let s = state_with_offer("42", "RTX 4090");
+        assert!(w.preflight(&s, "42", false).is_ok());
     }
 }

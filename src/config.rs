@@ -118,6 +118,17 @@ impl Config {
     pub fn load() -> Result<Self> {
         Self::load_from(&Self::default_path()?)
     }
+
+    pub fn default_profile_issue(&self) -> Option<String> {
+        let name = self.up.default_profile.as_deref()?;
+        if self.up.profiles.contains_key(name) {
+            None
+        } else {
+            Some(format!(
+                "up.default_profile = \"{name}\" but no [up.profiles.{name}] exists — commands that fall back to the default profile (prompt, logs, bare `up`) will fail until you point it at a real profile or remove it"
+            ))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -192,6 +203,33 @@ ready_probe = "pgrep ccminer"
         let p = cfg.up.profiles.get("miner").unwrap();
         assert_eq!(p.workload.as_deref(), Some("mining"));
         assert_eq!(p.ready_probe.as_deref(), Some("pgrep ccminer"));
+    }
+
+    #[test]
+    fn default_profile_issue_flags_missing_profile() {
+        let cfg = Config {
+            up: UpConfig {
+                default_profile: Some("ghost".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(cfg.default_profile_issue().is_some());
+    }
+
+    #[test]
+    fn default_profile_issue_none_when_profile_exists() {
+        let mut profiles = HashMap::new();
+        profiles.insert("real".to_string(), UpProfile::default());
+        let cfg = Config {
+            up: UpConfig {
+                default_profile: Some("real".into()),
+                profiles,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(cfg.default_profile_issue().is_none());
     }
 
     #[test]
