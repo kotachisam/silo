@@ -1,6 +1,18 @@
 use anyhow::{Context, Result};
 use std::process::Command;
 
+fn apply_hardening(c: &mut Command) {
+    for opt in [
+        "BatchMode=yes",
+        "StrictHostKeyChecking=accept-new",
+        "ConnectTimeout=15",
+        "ServerAliveInterval=5",
+        "ServerAliveCountMax=3",
+    ] {
+        c.arg("-o").arg(opt);
+    }
+}
+
 pub struct SshTarget {
     pub host: String,
     pub port: u16,
@@ -18,6 +30,7 @@ impl SshTarget {
 
     pub fn build_ssh(&self, remote_command: &[String]) -> Command {
         let mut c = Command::new("ssh");
+        apply_hardening(&mut c);
         c.arg("-p").arg(self.port.to_string());
         c.arg(format!("{}@{}", self.user, self.host));
         for piece in remote_command {
@@ -28,6 +41,7 @@ impl SshTarget {
 
     pub fn build_tunnel(&self, local_port: u16, remote_port: u16) -> Command {
         let mut c = Command::new("ssh");
+        apply_hardening(&mut c);
         c.arg("-p").arg(self.port.to_string());
         c.arg("-L")
             .arg(format!("{local_port}:localhost:{remote_port}"));
@@ -119,11 +133,42 @@ mod tests {
             .collect()
     }
 
+    fn with_opts(rest: &[&str]) -> Vec<String> {
+        let mut v = vec!["ssh".to_string()];
+        for opt in [
+            "BatchMode=yes",
+            "StrictHostKeyChecking=accept-new",
+            "ConnectTimeout=15",
+            "ServerAliveInterval=5",
+            "ServerAliveCountMax=3",
+        ] {
+            v.push("-o".to_string());
+            v.push(opt.to_string());
+        }
+        v.extend(rest.iter().map(|s| s.to_string()));
+        v
+    }
+
+    #[test]
+    fn build_ssh_hardening_options_present() {
+        let t = SshTarget::new("ssh4.vast.ai".into(), 12345);
+        let argv = argv(&t.build_ssh(&[]));
+        assert!(argv.windows(2).any(|w| w == ["-o", "BatchMode=yes"]));
+        assert!(
+            argv.windows(2)
+                .any(|w| w == ["-o", "StrictHostKeyChecking=accept-new"])
+        );
+        assert!(
+            argv.windows(2)
+                .any(|w| w == ["-o", "ServerAliveInterval=5"])
+        );
+    }
+
     #[test]
     fn build_ssh_basic_form() {
         let t = SshTarget::new("ssh4.vast.ai".into(), 12345);
         let argv = argv(&t.build_ssh(&[]));
-        assert_eq!(argv, vec!["ssh", "-p", "12345", "root@ssh4.vast.ai"]);
+        assert_eq!(argv, with_opts(&["-p", "12345", "root@ssh4.vast.ai"]));
     }
 
     #[test]
@@ -132,7 +177,7 @@ mod tests {
         let argv = argv(&t.build_ssh(&["ollama".into(), "list".into()]));
         assert_eq!(
             argv,
-            vec!["ssh", "-p", "12345", "root@ssh4.vast.ai", "ollama", "list"]
+            with_opts(&["-p", "12345", "root@ssh4.vast.ai", "ollama", "list"])
         );
     }
 
@@ -142,15 +187,14 @@ mod tests {
         let argv = argv(&t.build_tunnel(11434, 11434));
         assert_eq!(
             argv,
-            vec![
-                "ssh",
+            with_opts(&[
                 "-p",
                 "12345",
                 "-L",
                 "11434:localhost:11434",
                 "-N",
                 "root@ssh4.vast.ai"
-            ]
+            ])
         );
     }
 }
