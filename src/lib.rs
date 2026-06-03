@@ -5,6 +5,7 @@ pub mod models;
 pub mod providers;
 pub mod ssh;
 pub mod state;
+pub mod workloads;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
