@@ -4,8 +4,21 @@ use std::path::PathBuf;
 pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("SILO_GIT_SHA"), ")");
 
 #[derive(Parser, Debug)]
-#[command(name = "silo", version = VERSION, about = "Ephemeral GPU rental orchestration")]
+#[command(
+    name = "silo",
+    version = VERSION,
+    disable_version_flag = true,
+    about = "Ephemeral GPU rental orchestration"
+)]
 pub struct Cli {
+    #[arg(
+        short = 'v',
+        long = "version",
+        action = clap::ArgAction::Version,
+        help = "Print version"
+    )]
+    pub version: Option<bool>,
+
     #[arg(short = 'p', long, global = true)]
     pub provider: Option<String>,
 
