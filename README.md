@@ -43,7 +43,7 @@ silo down
 | Command | Purpose |
 |---|---|
 | `silo search` | List vast.ai offers matching filters; caches results for `silo up` arch checks |
-| `silo up <id>` | Rent an offer using the active profile; `--wait` for /health, `--profile X` to switch |
+| `silo up <id>` | Rent an offer using the active profile; `--wait` until the workload reports ready, `--profile X` to switch |
 | `silo status` | Provider status + SSH details + elapsed time + running cost |
 | `silo prompt <text>` | One-shot OpenAI-compatible prompt against the active vLLM instance |
 | `silo ssh [-- cmd]` | Interactive shell or one-shot remote command |
@@ -87,6 +87,13 @@ HF_TOKEN = "..."
 One profile per model. Switch with `silo up <id> --profile <name>`. Run
 `silo config edit` to bootstrap; `silo config show` displays it with secrets
 masked.
+
+Profiles default to `workload = "inference"`, where `silo up --wait` polls the
+vLLM `/health` endpoint to decide readiness. Other workloads set `workload`
+explicitly and a `ready_probe` — a remote shell command whose exit-0 means
+ready — instead of the health check (e.g. a `mining` profile with
+`ready_probe = "pgrep -x ccminer"`). The `silo config edit` template ships a
+commented `miner` profile to copy.
 
 ## Built-in compatibility check
 

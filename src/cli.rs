@@ -279,7 +279,7 @@ pub struct UpArgs {
     #[arg(
         short = 'w',
         long,
-        help = "Block until vLLM /health responds (polls every 60s, 30m timeout)"
+        help = "Block until the workload reports ready (polls every 60s, 30m timeout)"
     )]
     pub wait: bool,
     #[arg(
