@@ -46,6 +46,8 @@ pub struct UpProfile {
     pub env: HashMap<String, String>,
     #[serde(default)]
     pub block_arch: Vec<String>,
+    pub workload: Option<String>,
+    pub ready_probe: Option<String>,
 }
 
 pub fn mask_secrets(toml_text: &str) -> String {
@@ -170,6 +172,39 @@ default_verified_only = true
         fs::write(&path, r#"vast_api_key = "abc""#).unwrap();
         let cfg = Config::load_from(&path).unwrap();
         assert_eq!(cfg.search, SearchConfig::default());
+    }
+
+    #[test]
+    fn parses_workload_and_ready_probe() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[up.profiles.miner]
+image = "ubuntu:22.04"
+workload = "mining"
+ready_probe = "pgrep ccminer"
+"#,
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path).unwrap();
+        let p = cfg.up.profiles.get("miner").unwrap();
+        assert_eq!(p.workload.as_deref(), Some("mining"));
+        assert_eq!(p.ready_probe.as_deref(), Some("pgrep ccminer"));
+    }
+
+    #[test]
+    fn workload_defaults_to_none_for_legacy_profiles() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            "[up.profiles.vllm]\nimage = \"vllm/vllm-openai:latest\"\n",
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path).unwrap();
+        assert_eq!(cfg.up.profiles.get("vllm").unwrap().workload, None);
     }
 
     #[test]
