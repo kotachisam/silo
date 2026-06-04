@@ -16,33 +16,66 @@ pub struct SearchFilters {
     pub limit: Option<u32>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderId {
+    #[default]
+    Vast,
+}
+
+impl ProviderId {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Vast => "vast",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Offer {
-    pub id: String,
-    pub gpu_name: String,
-    pub num_gpus: u32,
-    pub vram_gb: f32,
-    pub disk_gb: u32,
-    pub price_per_hour_usd: f32,
-    pub region: Option<String>,
-    pub reliability: Option<f32>,
+pub struct VastExtra {
     pub cuda: Option<String>,
     pub pcie_bw: Option<f32>,
-    pub cpu_ghz: Option<f32>,
-    pub vcpus: Option<f32>,
-    pub ram_gb: Option<f32>,
     pub dlp: Option<f32>,
     pub dlp_per_dollar: Option<f32>,
     pub score: Option<f32>,
     pub driver: Option<String>,
-    pub net_up_mbps: Option<f32>,
-    pub net_down_mbps: Option<f32>,
     pub max_days: Option<f32>,
     pub machine_id: Option<u64>,
     pub host_id: Option<u64>,
     pub status: Option<String>,
     pub ports: Option<u32>,
     pub country: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ProviderExtra {
+    Vast(VastExtra),
+}
+
+impl Default for ProviderExtra {
+    fn default() -> Self {
+        Self::Vast(VastExtra::default())
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Offer {
+    pub provider: ProviderId,
+    pub id: String,
+    pub gpu_raw: String,
+    pub gpu_canonical: Option<String>,
+    pub num_gpus: u32,
+    pub vram_gb: f32,
+    pub disk_gb: u32,
+    pub price_per_hour_usd: f32,
+    pub region: Option<String>,
+    pub reliability: Option<f32>,
+    pub cpu_ghz: Option<f32>,
+    pub vcpus: Option<f32>,
+    pub ram_gb: Option<f32>,
+    pub net_up_mbps: Option<f32>,
+    pub net_down_mbps: Option<f32>,
+    pub extra: ProviderExtra,
 }
 
 #[derive(Debug, Clone, Default)]

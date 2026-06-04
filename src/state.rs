@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CachedOffer {
+    #[serde(default)]
+    pub provider: crate::providers::ProviderId,
     pub gpu_name: String,
     pub num_gpus: u32,
     pub vram_gb: f32,
@@ -117,6 +119,14 @@ mod tests {
         let state = State::default();
         state.save_to(&path).unwrap();
         assert!(path.exists());
+    }
+
+    #[test]
+    fn cached_offer_without_provider_defaults_to_vast() {
+        let json = r#"{"gpu_name":"RTX 4090","num_gpus":1,"vram_gb":24.0}"#;
+        let cached: CachedOffer = serde_json::from_str(json).unwrap();
+        assert_eq!(cached.provider, crate::providers::ProviderId::Vast);
+        assert_eq!(cached.gpu_name, "RTX 4090");
     }
 
     #[test]

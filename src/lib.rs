@@ -14,7 +14,7 @@ use cli::{
     Cli, Command, ConfigAction, ConfigArgs, LogsArgs, ModelsArgs, PromptArgs, SearchArgs,
     TunnelArgs, UpArgs,
 };
-use providers::{AnyProvider, CreateConfig, Offer, SearchFilters};
+use providers::{AnyProvider, CreateConfig, Offer, ProviderExtra, SearchFilters};
 use ssh::SshTarget;
 use state::{ActiveInstance, State};
 use std::fs;
@@ -216,7 +216,8 @@ async fn cmd_search(
             (
                 o.id.clone(),
                 state::CachedOffer {
-                    gpu_name: o.gpu_name.clone(),
+                    provider: o.provider,
+                    gpu_name: o.gpu_raw.clone(),
                     num_gpus: o.num_gpus,
                     vram_gb: o.vram_gb,
                 },
@@ -340,6 +341,12 @@ fn cmd_config_edit() -> Result<()> {
     Ok(())
 }
 
+fn verification_status(o: &Offer) -> Option<&str> {
+    match &o.extra {
+        ProviderExtra::Vast(v) => v.status.as_deref(),
+    }
+}
+
 fn filter_by_status(
     offers: Vec<Offer>,
     verified_only: bool,
@@ -356,8 +363,7 @@ fn filter_by_status(
     offers
         .into_iter()
         .filter(|o| {
-            o.status
-                .as_deref()
+            verification_status(o)
                 .map(|s| allowed.contains(&s))
                 .unwrap_or(false)
         })
@@ -738,7 +744,7 @@ async fn retry_with_fresh_offer(
 
     let mut last_err: Option<anyhow::Error> = None;
     for next in candidates.into_iter().filter(|o| o.id != failed_id).take(3) {
-        println!("retrying with offer {} ({})", next.id, next.gpu_name);
+        println!("retrying with offer {} ({})", next.id, next.gpu_raw);
         match provider.create(&next.id, cfg).await {
             Ok(inst) => return Ok(inst),
             Err(e) if is_stale_offer_error(&e) => {
@@ -987,7 +993,10 @@ mod tests {
     fn offer(id: &str, status: Option<&str>) -> Offer {
         Offer {
             id: id.into(),
-            status: status.map(String::from),
+            extra: ProviderExtra::Vast(providers::VastExtra {
+                status: status.map(String::from),
+                ..Default::default()
+            }),
             ..Default::default()
         }
     }

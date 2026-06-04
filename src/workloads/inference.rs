@@ -99,6 +99,7 @@ mod tests {
         s.last_search_results.insert(
             id.into(),
             CachedOffer {
+                provider: crate::providers::ProviderId::Vast,
                 gpu_name: gpu.into(),
                 num_gpus: 1,
                 vram_gb: 90.0,

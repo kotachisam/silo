@@ -1,4 +1,7 @@
-use super::{CreateConfig, InstanceRef, InstanceStatus, Offer, Provider, SearchFilters};
+use super::{
+    CreateConfig, InstanceRef, InstanceStatus, Offer, Provider, ProviderExtra, ProviderId,
+    SearchFilters, VastExtra,
+};
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::Deserialize;
@@ -151,31 +154,35 @@ impl Provider for VastProvider {
             .offers
             .into_iter()
             .map(|o| Offer {
+                provider: ProviderId::Vast,
                 id: o.id.to_string(),
-                gpu_name: o.gpu_name,
+                gpu_raw: o.gpu_name,
+                gpu_canonical: None,
                 num_gpus: o.num_gpus,
                 vram_gb: (o.gpu_ram / 1024.0) as f32,
                 disk_gb: o.disk_space as u32,
                 price_per_hour_usd: o.dph_total,
                 region: o.geolocation.clone(),
                 reliability: o.reliability2,
-                cuda: o.cuda_max_good.map(|c| format!("{c:.1}")),
-                pcie_bw: o.pcie_bw,
                 cpu_ghz: o.cpu_ghz,
                 vcpus: o.cpu_cores_effective,
                 ram_gb: o.cpu_ram.map(|r| (r / 1024.0) as f32),
-                dlp: o.dlperf,
-                dlp_per_dollar: o.dlperf_per_dphtotal,
-                score: o.score,
-                driver: o.driver_version,
                 net_up_mbps: o.inet_up,
                 net_down_mbps: o.inet_down,
-                max_days: o.max_days_in_use.map(|s| s / 86400.0),
-                machine_id: o.machine_id,
-                host_id: o.host_id,
-                status: o.verification,
-                ports: o.direct_port_count,
-                country: o.geolocation,
+                extra: ProviderExtra::Vast(VastExtra {
+                    cuda: o.cuda_max_good.map(|c| format!("{c:.1}")),
+                    pcie_bw: o.pcie_bw,
+                    dlp: o.dlperf,
+                    dlp_per_dollar: o.dlperf_per_dphtotal,
+                    score: o.score,
+                    driver: o.driver_version,
+                    max_days: o.max_days_in_use.map(|s| s / 86400.0),
+                    machine_id: o.machine_id,
+                    host_id: o.host_id,
+                    status: o.verification,
+                    ports: o.direct_port_count,
+                    country: o.geolocation,
+                }),
             })
             .collect())
     }
@@ -336,7 +343,7 @@ mod tests {
 
         assert_eq!(offers.len(), 1);
         assert_eq!(offers[0].id, "12345");
-        assert_eq!(offers[0].gpu_name, "RTX 4090");
+        assert_eq!(offers[0].gpu_raw, "RTX 4090");
         assert!((offers[0].vram_gb - 24.0).abs() < 0.001);
         assert_eq!(offers[0].disk_gb, 250);
         assert!((offers[0].price_per_hour_usd - 0.45).abs() < 0.001);
